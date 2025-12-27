@@ -1,1452 +1,1631 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Zeta Stream Viewer v3.0</title>
     <style>
-        :root {
-            --primary-color: #4CAF50;
-            --secondary-color: #2196F3;
-            --error-color: #f44336;
-            --warning-color: #FFC107;
-            --bg-gradient: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-            --card-bg: rgba(255, 255, 255, 0.05);
-            --card-border: rgba(255, 255, 255, 0.1);
-        }
+      :root {
+        --primary-color: #4caf50;
+        --secondary-color: #2196f3;
+        --error-color: #f44336;
+        --warning-color: #ffc107;
+        --bg-gradient: linear-gradient(
+          135deg,
+          #0f0c29 0%,
+          #302b63 50%,
+          #24243e 100%
+        );
+        --card-bg: rgba(255, 255, 255, 0.05);
+        --card-border: rgba(255, 255, 255, 0.1);
+      }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: var(--bg-gradient);
-            color: #fff;
-            min-height: 100vh;
-            padding: 20px;
-            line-height: 1.6;
-        }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, sans-serif;
+        background: var(--bg-gradient);
+        color: #fff;
+        min-height: 100vh;
+        padding: 20px;
+        line-height: 1.6;
+      }
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
 
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            animation: fadeInDown 0.6s ease;
-        }
+      .header {
+        text-align: center;
+        margin-bottom: 30px;
+        animation: fadeInDown 0.6s ease;
+      }
 
+      .header h1 {
+        font-size: 2.5em;
+        font-weight: 700;
+        background: linear-gradient(
+          90deg,
+          var(--primary-color),
+          var(--secondary-color)
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 10px;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+      }
+
+      .subtitle {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 1.1em;
+      }
+
+      .status-bar {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+      }
+
+      .status-card {
+        background: var(--card-bg);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 15px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        transition: all 0.3s ease;
+        min-height: 70px;
+      }
+
+      .status-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+      }
+
+      .status-card.connected {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.2);
+      }
+
+      .status-card.streaming {
+        border-color: var(--secondary-color);
+        box-shadow: 0 0 20px rgba(33, 150, 243, 0.2);
+      }
+
+      .status-card.error {
+        border-color: var(--error-color);
+        box-shadow: 0 0 20px rgba(244, 67, 54, 0.2);
+      }
+
+      .status-card.warning {
+        border-color: var(--warning-color);
+        box-shadow: 0 0 20px rgba(255, 193, 7, 0.2);
+      }
+
+      .status-indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #666;
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .status-indicator::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        left: -3px;
+        right: -3px;
+        bottom: -3px;
+        border-radius: 50%;
+        border: 2px solid currentColor;
+        opacity: 0;
+        animation: pulse 2s infinite;
+      }
+
+      .status-indicator.active {
+        background: var(--primary-color);
+        box-shadow: 0 0 10px var(--primary-color);
+      }
+
+      .status-indicator.active::after {
+        opacity: 1;
+        color: var(--primary-color);
+      }
+
+      .status-indicator.warning {
+        background: var(--warning-color);
+        box-shadow: 0 0 10px var(--warning-color);
+      }
+
+      .status-indicator.error {
+        background: var(--error-color);
+        box-shadow: 0 0 10px var(--error-color);
+      }
+
+      .status-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .status-label {
+        font-size: 0.85em;
+        color: rgba(255, 255, 255, 0.6);
+        margin-bottom: 2px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .status-value {
+        font-size: 1.1em;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .video-container {
+        position: relative;
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto 30px;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #000;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      }
+
+      .video-wrapper {
+        position: relative;
+        padding-bottom: 56.25%; /* 16:9 aspect ratio */
+      }
+
+      #remoteVideo {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+        transition: opacity 0.3s ease;
+      }
+
+      .video-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        transition: opacity 0.3s ease;
+        z-index: 10;
+      }
+
+      .video-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .video-overlay-content {
+        text-align: center;
+        padding: 40px;
+        max-width: 500px;
+      }
+
+      .spinner {
+        width: 60px;
+        height: 60px;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+        border-top-color: var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+      }
+
+      .overlay-title {
+        font-size: 1.5em;
+        margin-bottom: 10px;
+        font-weight: 600;
+      }
+
+      .overlay-text {
+        color: rgba(255, 255, 255, 0.8);
+        margin-bottom: 25px;
+        line-height: 1.5;
+      }
+
+      .btn {
+        padding: 14px 28px;
+        background: var(--primary-color);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        text-decoration: none;
+      }
+
+      .btn:hover {
+        background: #45a049;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 20px rgba(76, 175, 80, 0.3);
+      }
+
+      .btn-secondary {
+        background: var(--secondary-color);
+      }
+
+      .btn-secondary:hover {
+        background: #1e87db;
+        box-shadow: 0 8px 20px rgba(33, 150, 243, 0.3);
+      }
+
+      .btn-block {
+        width: 100%;
+      }
+
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+
+      .stat-card {
+        background: var(--card-bg);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        padding: 20px;
+        transition: all 0.3s ease;
+      }
+
+      .stat-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(76, 175, 80, 0.3);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      }
+
+      .stat-label {
+        font-size: 0.85em;
+        color: rgba(255, 255, 255, 0.6);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .stat-value {
+        font-size: 1.8em;
+        font-weight: 700;
+        color: var(--primary-color);
+        line-height: 1.2;
+      }
+
+      .stat-subtext {
+        font-size: 0.85em;
+        color: rgba(255, 255, 255, 0.5);
+        margin-top: 4px;
+      }
+
+      .control-panel {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+
+      .logs-container {
+        background: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .logs-header {
+        padding: 15px 20px;
+        background: rgba(255, 255, 255, 0.05);
+        border-bottom: 1px solid var(--card-border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .logs-header h3 {
+        font-size: 1.1em;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .log-controls {
+        display: flex;
+        gap: 10px;
+      }
+
+      .log-control-btn {
+        padding: 6px 12px;
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 6px;
+        color: #fff;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 0.85em;
+      }
+
+      .log-control-btn:hover {
+        background: rgba(255, 255, 255, 0.15);
+        transform: translateY(-1px);
+      }
+
+      .logs-content {
+        padding: 15px;
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: "SF Mono", "Monaco", "Inconsolata", "Fira Code", monospace;
+        font-size: 0.85em;
+        line-height: 1.5;
+      }
+
+      .logs-content::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .logs-content::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .logs-content::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+      }
+
+      .log-entry {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        animation: fadeInLeft 0.3s ease forwards;
+        display: flex;
+        gap: 10px;
+      }
+
+      .log-time {
+        color: rgba(255, 255, 255, 0.4);
+        flex-shrink: 0;
+        min-width: 85px;
+      }
+
+      .log-message {
+        flex: 1;
+        word-break: break-word;
+      }
+
+      .log-info {
+        color: var(--primary-color);
+      }
+      .log-warn {
+        color: var(--warning-color);
+      }
+      .log-error {
+        color: var(--error-color);
+      }
+      .log-debug {
+        color: #9c27b0;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      @keyframes fadeInDown {
+        from {
+          opacity: 0;
+          transform: translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes fadeInLeft {
+        from {
+          opacity: 0;
+          transform: translateX(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(0);
+        }
+      }
+
+      @keyframes scaleIn {
+        from {
+          opacity: 0;
+          transform: scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(1.1);
+          opacity: 0.7;
+        }
+      }
+
+      @media (max-width: 768px) {
         .header h1 {
-            font-size: 2.5em;
-            font-weight: 700;
-            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 10px;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-        }
-
-        .subtitle {
-            color: rgba(255, 255, 255, 0.7);
-            font-size: 1.1em;
+          font-size: 1.8em;
         }
 
         .status-bar {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-
-        .status-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            padding: 15px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.3s ease;
-            min-height: 70px;
-        }
-
-        .status-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
-        }
-
-        .status-card.connected {
-            border-color: var(--primary-color);
-            box-shadow: 0 0 20px rgba(76, 175, 80, 0.2);
-        }
-
-        .status-card.streaming {
-            border-color: var(--secondary-color);
-            box-shadow: 0 0 20px rgba(33, 150, 243, 0.2);
-        }
-
-        .status-card.error {
-            border-color: var(--error-color);
-            box-shadow: 0 0 20px rgba(244, 67, 54, 0.2);
-        }
-
-        .status-card.warning {
-            border-color: var(--warning-color);
-            box-shadow: 0 0 20px rgba(255, 193, 7, 0.2);
-        }
-
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #666;
-            position: relative;
-            flex-shrink: 0;
-        }
-
-        .status-indicator::after {
-            content: '';
-            position: absolute;
-            top: -3px;
-            left: -3px;
-            right: -3px;
-            bottom: -3px;
-            border-radius: 50%;
-            border: 2px solid currentColor;
-            opacity: 0;
-            animation: pulse 2s infinite;
-        }
-
-        .status-indicator.active {
-            background: var(--primary-color);
-            box-shadow: 0 0 10px var(--primary-color);
-        }
-
-        .status-indicator.active::after {
-            opacity: 1;
-            color: var(--primary-color);
-        }
-
-        .status-indicator.warning {
-            background: var(--warning-color);
-            box-shadow: 0 0 10px var(--warning-color);
-        }
-
-        .status-indicator.error {
-            background: var(--error-color);
-            box-shadow: 0 0 10px var(--error-color);
-        }
-
-        .status-content {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .status-label {
-            font-size: 0.85em;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 2px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .status-value {
-            font-size: 1.1em;
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .video-container {
-            position: relative;
-            width: 100%;
-            max-width: 1200px;
-            margin: 0 auto 30px;
-            border-radius: 16px;
-            overflow: hidden;
-            background: #000;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        }
-
-        .video-wrapper {
-            position: relative;
-            padding-bottom: 56.25%; /* 16:9 aspect ratio */
-        }
-
-        #remoteVideo {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            background: #000;
-            transition: opacity 0.3s ease;
-        }
-
-        .video-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(10px);
-            transition: opacity 0.3s ease;
-            z-index: 10;
-        }
-
-        .video-overlay.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .video-overlay-content {
-            text-align: center;
-            padding: 40px;
-            max-width: 500px;
-        }
-
-        .spinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-top-color: var(--primary-color);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        .overlay-title {
-            font-size: 1.5em;
-            margin-bottom: 10px;
-            font-weight: 600;
-        }
-
-        .overlay-text {
-            color: rgba(255, 255, 255, 0.8);
-            margin-bottom: 25px;
-            line-height: 1.5;
-        }
-
-        .btn {
-            padding: 14px 28px;
-            background: var(--primary-color);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            text-decoration: none;
-        }
-
-        .btn:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(76, 175, 80, 0.3);
-        }
-
-        .btn-secondary {
-            background: var(--secondary-color);
-        }
-
-        .btn-secondary:hover {
-            background: #1e87db;
-            box-shadow: 0 8px 20px rgba(33, 150, 243, 0.3);
-        }
-
-        .btn-block {
-            width: 100%;
+          grid-template-columns: 1fr;
         }
 
         .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            padding: 20px;
-            transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-3px);
-            border-color: rgba(76, 175, 80, 0.3);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-        }
-
-        .stat-label {
-            font-size: 0.85em;
-            color: rgba(255, 255, 255, 0.6);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .stat-value {
-            font-size: 1.8em;
-            font-weight: 700;
-            color: var(--primary-color);
-            line-height: 1.2;
-        }
-
-        .stat-subtext {
-            font-size: 0.85em;
-            color: rgba(255, 255, 255, 0.5);
-            margin-top: 4px;
+          grid-template-columns: 1fr;
         }
 
         .control-panel {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
+          flex-direction: column;
         }
 
-        .logs-container {
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            overflow: hidden;
+        .btn {
+          width: 100%;
         }
 
-        .logs-header {
-            padding: 15px 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-bottom: 1px solid var(--card-border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .video-container {
+          border-radius: 12px;
         }
 
-        .logs-header h3 {
-            font-size: 1.1em;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .video-overlay-content {
+          padding: 20px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        body {
+          padding: 15px;
         }
 
-        .log-controls {
-            display: flex;
-            gap: 10px;
+        .header h1 {
+          font-size: 1.5em;
         }
 
-        .log-control-btn {
-            padding: 6px 12px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            color: #fff;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-size: 0.85em;
+        .status-card {
+          padding: 12px;
         }
 
-        .log-control-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            transform: translateY(-1px);
+        .stat-value {
+          font-size: 1.5em;
         }
-
-        .logs-content {
-            padding: 15px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
-            font-size: 0.85em;
-            line-height: 1.5;
-        }
-
-        .logs-content::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .logs-content::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .logs-content::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
-        }
-
-        .log-entry {
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            animation: fadeInLeft 0.3s ease forwards;
-            display: flex;
-            gap: 10px;
-        }
-
-        .log-time {
-            color: rgba(255, 255, 255, 0.4);
-            flex-shrink: 0;
-            min-width: 85px;
-        }
-
-        .log-message {
-            flex: 1;
-            word-break: break-word;
-        }
-
-        .log-info { color: var(--primary-color); }
-        .log-warn { color: var(--warning-color); }
-        .log-error { color: var(--error-color); }
-        .log-debug { color: #9C27B0; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        @keyframes fadeInDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @keyframes fadeInLeft {
-            from {
-                opacity: 0;
-                transform: translateX(-10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(0);
-            }
-        }
-
-        @keyframes scaleIn {
-            from {
-                opacity: 0;
-                transform: scale(0.95);
-            }
-            to {
-                opacity: 1;
-                transform: scale(1);
-            }
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 1; }
-            50% { transform: scale(1.1); opacity: 0.7; }
-        }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 1.8em;
-            }
-            
-            .status-bar {
-                grid-template-columns: 1fr;
-            }
-            
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .control-panel {
-                flex-direction: column;
-            }
-            
-            .btn {
-                width: 100%;
-            }
-            
-            .video-container {
-                border-radius: 12px;
-            }
-            
-            .video-overlay-content {
-                padding: 20px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            body {
-                padding: 15px;
-            }
-            
-            .header h1 {
-                font-size: 1.5em;
-            }
-            
-            .status-card {
-                padding: 12px;
-            }
-            
-            .stat-value {
-                font-size: 1.5em;
-            }
-        }
+      }
     </style>
-</head>
-<body>
-        <div class="container">
-        <div class="header">
-            <h1>📹 Zeta Stream Viewer v3.0</h1>
-            <p class="subtitle">Professional WebRTC Live Streaming with Enhanced Stability</p>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>📹 Zeta Stream Viewer v3.0</h1>
+        <p class="subtitle">
+          Professional WebRTC Live Streaming with Enhanced Stability
+        </p>
+      </div>
+
+      <div class="status-bar">
+        <div class="status-card" id="wsStatus">
+          <div class="status-indicator" id="wsDot"></div>
+          <div class="status-content">
+            <div class="status-label">WebSocket</div>
+            <div class="status-value" id="wsText">Connecting...</div>
+          </div>
         </div>
 
-        <div class="status-bar">
-            <div class="status-card" id="wsStatus">
-                <div class="status-indicator" id="wsDot"></div>
-                <div class="status-content">
-                    <div class="status-label">WebSocket</div>
-                    <div class="status-value" id="wsText">Connecting...</div>
-                </div>
-            </div>
-            
-            <div class="status-card" id="androidStatus">
-                <div class="status-indicator" id="androidDot"></div>
-                <div class="status-content">
-                    <div class="status-label">Android Device</div>
-                    <div class="status-value" id="androidText">Waiting...</div>
-                </div>
-            </div>
-            
-            <div class="status-card" id="streamStatus">
-                <div class="status-indicator" id="streamDot"></div>
-                <div class="status-content">
-                    <div class="status-label">Stream Status</div>
-                    <div class="status-value" id="streamText">No Stream</div>
-                </div>
-            </div>
-            
-            <div class="status-card" id="cameraStatus">
-                <div class="status-indicator" id="cameraDot"></div>
-                <div class="status-content">
-                    <div class="status-label">Camera</div>
-                    <div class="status-value" id="cameraText">Off</div>
-                </div>
-            </div>
+        <div class="status-card" id="androidStatus">
+          <div class="status-indicator" id="androidDot"></div>
+          <div class="status-content">
+            <div class="status-label">Android Device</div>
+            <div class="status-value" id="androidText">Waiting...</div>
+          </div>
         </div>
 
-        <div class="control-panel">
-            <button class="btn" onclick="forcePlay()" id="playBtn">
-                <span>▶️</span> Play Stream
+        <div class="status-card" id="streamStatus">
+          <div class="status-indicator" id="streamDot"></div>
+          <div class="status-content">
+            <div class="status-label">Stream Status</div>
+            <div class="status-value" id="streamText">No Stream</div>
+          </div>
+        </div>
+
+        <div class="status-card" id="cameraStatus">
+          <div class="status-indicator" id="cameraDot"></div>
+          <div class="status-content">
+            <div class="status-label">Camera</div>
+            <div class="status-value" id="cameraText">Off</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="control-panel">
+        <button class="btn" onclick="forcePlay()" id="playBtn">
+          <span>▶️</span> Play Stream
+        </button>
+        <button class="btn btn-secondary" onclick="toggleMute()" id="muteBtn">
+          <span>🔇</span> Mute
+        </button>
+        <button
+          class="btn btn-secondary"
+          onclick="refreshConnection()"
+          id="refreshBtn"
+        >
+          <span>🔄</span> Reconnect
+        </button>
+        <button class="btn" onclick="copyStreamURL()" id="copyBtn">
+          <span>📋</span> Copy URL
+        </button>
+      </div>
+
+      <div class="video-container">
+        <div class="video-wrapper">
+          <video id="remoteVideo" autoplay playsinline muted controls></video>
+          <div class="video-overlay" id="videoOverlay">
+            <div class="video-overlay-content">
+              <div class="spinner"></div>
+              <h3 class="overlay-title" id="overlayTitle">
+                Waiting for Stream
+              </h3>
+              <p class="overlay-text" id="overlayText">
+                Connecting to Android device and initializing video stream...
+              </p>
+              <div id="playButtonContainer" style="display: none">
+                <button class="btn btn-block" onclick="forcePlay()">
+                  <span>▶️</span> Start Streaming
+                </button>
+                <p
+                  style="
+                    margin-top: 10px;
+                    font-size: 14px;
+                    color: rgba(255, 255, 255, 0.6);
+                  "
+                >
+                  Click to start video playback
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Connection State</div>
+          <div class="stat-value" id="statConnection">Disconnected</div>
+          <div class="stat-subtext" id="statConnectionSub">
+            WebRTC peer connection
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">ICE State</div>
+          <div class="stat-value" id="statIce">New</div>
+          <div class="stat-subtext" id="statIceSub">Network connectivity</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Video Resolution</div>
+          <div class="stat-value" id="statResolution">-</div>
+          <div class="stat-subtext" id="statResolutionSub">Width × Height</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Bitrate</div>
+          <div class="stat-value" id="statBitrate">- kbps</div>
+          <div class="stat-subtext" id="statBitrateSub">Video data rate</div>
+        </div>
+      </div>
+
+      <div class="logs-container">
+        <div class="logs-header">
+          <h3><span>📋</span> Event Logs</h3>
+          <div class="log-controls">
+            <button class="log-control-btn" onclick="clearLogs()">Clear</button>
+            <button
+              class="log-control-btn"
+              onclick="toggleAutoScroll()"
+              id="autoScrollBtn"
+            >
+              Auto-scroll: On
             </button>
-            <button class="btn btn-secondary" onclick="toggleMute()" id="muteBtn">
-                <span>🔇</span> Mute
+            <button class="log-control-btn" onclick="exportLogs()">
+              Export
             </button>
-            <button class="btn btn-secondary" onclick="refreshConnection()" id="refreshBtn">
-                <span>🔄</span> Reconnect
-            </button>
-            <button class="btn" onclick="copyStreamURL()" id="copyBtn">
-                <span>📋</span> Copy URL
-            </button>
+          </div>
         </div>
-
-        <div class="video-container">
-            <div class="video-wrapper">
-                <video id="remoteVideo" autoplay playsinline muted controls></video>
-                <div class="video-overlay" id="videoOverlay">
-                    <div class="video-overlay-content">
-                        <div class="spinner"></div>
-                        <h3 class="overlay-title" id="overlayTitle">Waiting for Stream</h3>
-                        <p class="overlay-text" id="overlayText">
-                            Connecting to Android device and initializing video stream...
-                        </p>
-                        <div id="playButtonContainer" style="display: none;">
-                            <button class="btn btn-block" onclick="forcePlay()">
-                                <span>▶️</span> Start Streaming
-                            </button>
-                            <p style="margin-top: 10px; font-size: 14px; color: rgba(255,255,255,0.6);">
-                                Click to start video playback
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div class="logs-content" id="logsContent">
+          <div class="log-entry log-info">
+            <span class="log-time">[--:--:--]</span>
+            <span class="log-message"
+              >System initialized. Waiting for connections...</span
+            >
+          </div>
         </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">Connection State</div>
-                <div class="stat-value" id="statConnection">Disconnected</div>
-                <div class="stat-subtext" id="statConnectionSub">WebRTC peer connection</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">ICE State</div>
-                <div class="stat-value" id="statIce">New</div>
-                <div class="stat-subtext" id="statIceSub">Network connectivity</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Video Resolution</div>
-                <div class="stat-value" id="statResolution">-</div>
-                <div class="stat-subtext" id="statResolutionSub">Width × Height</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Bitrate</div>
-                <div class="stat-value" id="statBitrate">- kbps</div>
-                <div class="stat-subtext" id="statBitrateSub">Video data rate</div>
-            </div>
-        </div>
-
-        <div class="logs-container">
-            <div class="logs-header">
-                <h3><span>📋</span> Event Logs</h3>
-                <div class="log-controls">
-                    <button class="log-control-btn" onclick="clearLogs()">Clear</button>
-                    <button class="log-control-btn" onclick="toggleAutoScroll()" id="autoScrollBtn">Auto-scroll: On</button>
-                    <button class="log-control-btn" onclick="exportLogs()">Export</button>
-                </div>
-            </div>
-            <div class="logs-content" id="logsContent">
-                <div class="log-entry log-info">
-                    <span class="log-time">[--:--:--]</span>
-                    <span class="log-message">System initialized. Waiting for connections...</span>
-                </div>
-            </div>
-        </div>
+      </div>
     </div>
 
     <script>
-        // Configuration
-        const WS_URL = `wss://zeta-signaling-server-production-e448.up.railway.app/ws`;
-        const STATS_INTERVAL = 1000; // 1 second
-        const MAX_RECONNECT_ATTEMPTS = 10;
-        const RECONNECT_BASE_DELAY = 3000;
-        
-        // Global state
-        let ws = null;
-        let pc = null;
-        let remoteStream = null;
-        let statsInterval = null;
-        let reconnectAttempts = 0;
-        let isUserInteracted = false;
-        let isAutoScroll = true;
-        let connectionStartTime = 0;
-        let lastBytesReceived = 0;
-        let lastTimestamp = Date.now();
-        let videoPlayAttempts = 0;
-        
-        // DOM elements
-        const video = document.getElementById('remoteVideo');
-        const videoOverlay = document.getElementById('videoOverlay');
-        const overlayTitle = document.getElementById('overlayTitle');
-        const overlayText = document.getElementById('overlayText');
-        const playButtonContainer = document.getElementById('playButtonContainer');
-        const playBtn = document.getElementById('playBtn');
-        const muteBtn = document.getElementById('muteBtn');
-        
-        // Logging system
-        class Logger {
-            constructor() {
-                this.levels = {
-                    INFO: 'info',
-                    WARN: 'warn', 
-                    ERROR: 'error',
-                    DEBUG: 'debug'
-                };
-                this.logs = [];
-                this.maxLogs = 1000;
-            }
-            
-            log(message, level = 'info') {
-                const timestamp = new Date().toLocaleTimeString();
-                const logEntry = { timestamp, message, level };
-                
-                // Console log
-                const consoleMethod = level === 'error' ? 'error' : 
-                                   level === 'warn' ? 'warn' : 'log';
-                console[consoleMethod](`[${level.toUpperCase()}]`, message);
-                
-                // Store log
-                this.logs.push(logEntry);
-                if (this.logs.length > this.maxLogs) {
-                    this.logs.shift();
-                }
-                
-                // Update UI
-                this.updateUI(logEntry);
-                
-                return logEntry;
-            }
-            
-            updateUI(logEntry) {
-                const logsContent = document.getElementById('logsContent');
-                const entry = document.createElement('div');
-                entry.className = `log-entry log-${logEntry.level}`;
-                entry.innerHTML = `
+      // Configuration
+      const WS_URL = `wss://zeta-signaling-server-production-e448.up.railway.app/ws`;
+      const STATS_INTERVAL = 1000; // 1 second
+      const MAX_RECONNECT_ATTEMPTS = 10;
+      const RECONNECT_BASE_DELAY = 3000;
+
+      // Global state
+      let ws = null;
+      let pc = null;
+      let remoteStream = null;
+      let statsInterval = null;
+      let reconnectAttempts = 0;
+      let isUserInteracted = false;
+      let isAutoScroll = true;
+      let connectionStartTime = 0;
+      let lastBytesReceived = 0;
+      let lastTimestamp = Date.now();
+      let videoPlayAttempts = 0;
+
+      // DOM elements
+      const video = document.getElementById("remoteVideo");
+      const videoOverlay = document.getElementById("videoOverlay");
+      const overlayTitle = document.getElementById("overlayTitle");
+      const overlayText = document.getElementById("overlayText");
+      const playButtonContainer = document.getElementById(
+        "playButtonContainer"
+      );
+      const playBtn = document.getElementById("playBtn");
+      const muteBtn = document.getElementById("muteBtn");
+
+      // Logging system
+      class Logger {
+        constructor() {
+          this.levels = {
+            INFO: "info",
+            WARN: "warn",
+            ERROR: "error",
+            DEBUG: "debug",
+          };
+          this.logs = [];
+          this.maxLogs = 1000;
+        }
+
+        log(message, level = "info") {
+          const timestamp = new Date().toLocaleTimeString();
+          const logEntry = { timestamp, message, level };
+
+          // Console log
+          const consoleMethod =
+            level === "error" ? "error" : level === "warn" ? "warn" : "log";
+          console[consoleMethod](`[${level.toUpperCase()}]`, message);
+
+          // Store log
+          this.logs.push(logEntry);
+          if (this.logs.length > this.maxLogs) {
+            this.logs.shift();
+          }
+
+          // Update UI
+          this.updateUI(logEntry);
+
+          return logEntry;
+        }
+
+        updateUI(logEntry) {
+          const logsContent = document.getElementById("logsContent");
+          const entry = document.createElement("div");
+          entry.className = `log-entry log-${logEntry.level}`;
+          entry.innerHTML = `
                     <span class="log-time">[${logEntry.timestamp}]</span>
                     <span class="log-message">${logEntry.message}</span>
                 `;
-                
-                logsContent.appendChild(entry);
-                
-                if (isAutoScroll) {
-                    logsContent.scrollTop = logsContent.scrollHeight;
-                }
-            }
-            
-            clear() {
-                this.logs = [];
-                document.getElementById('logsContent').innerHTML = '';
-                this.log('Logs cleared', 'info');
-            }
-            
-            export() {
-                const content = this.logs.map(log => 
-                    `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.message}`
-                ).join('\n');
-                
-                const blob = new Blob([content], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `zeta-logs-${new Date().toISOString().slice(0,19)}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-                
-                this.log('Logs exported', 'info');
-            }
+
+          logsContent.appendChild(entry);
+
+          if (isAutoScroll) {
+            logsContent.scrollTop = logsContent.scrollHeight;
+          }
         }
-        
-        const logger = new Logger();
-        
-        // Utility functions
-        function updateStatus(cardId, indicatorId, textId, state) {
-            const card = document.getElementById(cardId);
-            const indicator = document.getElementById(indicatorId);
-            const text = document.getElementById(textId);
-            
-            // Reset classes
-            card.className = 'status-card';
-            indicator.className = 'status-indicator';
-            
-            switch(state) {
-                case 'connected':
-                    card.classList.add('connected');
-                    indicator.classList.add('active');
-                    break;
-                case 'streaming':
-                    card.classList.add('streaming');
-                    indicator.classList.add('active');
-                    break;
-                case 'error':
-                    card.classList.add('error');
-                    indicator.classList.add('error');
-                    break;
-                case 'warning':
-                    card.classList.add('warning');
-                    indicator.classList.add('warning');
-                    break;
-            }
+
+        clear() {
+          this.logs = [];
+          document.getElementById("logsContent").innerHTML = "";
+          this.log("Logs cleared", "info");
         }
-        
-        function updateStat(elementId, value, subtext = null) {
-            const element = document.getElementById(elementId);
-            if (element) {
-                element.textContent = value;
-                if (subtext && document.getElementById(`${elementId}Sub`)) {
-                    document.getElementById(`${elementId}Sub`).textContent = subtext;
-                }
-            }
+
+        export() {
+          const content = this.logs
+            .map(
+              (log) =>
+                `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.message}`
+            )
+            .join("\n");
+
+          const blob = new Blob([content], { type: "text/plain" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `zeta-logs-${new Date().toISOString().slice(0, 19)}.txt`;
+          a.click();
+          URL.revokeObjectURL(url);
+
+          this.log("Logs exported", "info");
         }
-        
-        function showOverlay(title, message, showPlayButton = false) {
-            overlayTitle.textContent = title;
-            overlayText.textContent = message;
-            videoOverlay.classList.remove('hidden');
-            playButtonContainer.style.display = showPlayButton ? 'block' : 'none';
-            document.querySelector('.spinner').style.display = showPlayButton ? 'none' : 'block';
+      }
+
+      const logger = new Logger();
+
+      // Utility functions
+      function updateStatus(cardId, indicatorId, textId, state) {
+        const card = document.getElementById(cardId);
+        const indicator = document.getElementById(indicatorId);
+        const text = document.getElementById(textId);
+
+        // Reset classes
+        card.className = "status-card";
+        indicator.className = "status-indicator";
+
+        switch (state) {
+          case "connected":
+            card.classList.add("connected");
+            indicator.classList.add("active");
+            break;
+          case "streaming":
+            card.classList.add("streaming");
+            indicator.classList.add("active");
+            break;
+          case "error":
+            card.classList.add("error");
+            indicator.classList.add("error");
+            break;
+          case "warning":
+            card.classList.add("warning");
+            indicator.classList.add("warning");
+            break;
         }
-        
-        function hideOverlay() {
-            videoOverlay.classList.add('hidden');
+      }
+
+      function updateStat(elementId, value, subtext = null) {
+        const element = document.getElementById(elementId);
+        if (element) {
+          element.textContent = value;
+          if (subtext && document.getElementById(`${elementId}Sub`)) {
+            document.getElementById(`${elementId}Sub`).textContent = subtext;
+          }
         }
-        
-        function toggleMute() {
-            video.muted = !video.muted;
-            muteBtn.innerHTML = video.muted ? 
-                '<span>🔇</span> Unmute' : 
-                '<span>🔊</span> Mute';
-            logger.log(`Audio ${video.muted ? 'muted' : 'unmuted'}`, 'info');
+      }
+
+      function showOverlay(title, message, showPlayButton = false) {
+        overlayTitle.textContent = title;
+        overlayText.textContent = message;
+        videoOverlay.classList.remove("hidden");
+        playButtonContainer.style.display = showPlayButton ? "block" : "none";
+        document.querySelector(".spinner").style.display = showPlayButton
+          ? "none"
+          : "block";
+      }
+
+      function hideOverlay() {
+        videoOverlay.classList.add("hidden");
+      }
+
+      function toggleMute() {
+        video.muted = !video.muted;
+        muteBtn.innerHTML = video.muted
+          ? "<span>🔇</span> Unmute"
+          : "<span>🔊</span> Mute";
+        logger.log(`Audio ${video.muted ? "muted" : "unmuted"}`, "info");
+      }
+
+      function refreshConnection() {
+        logger.log("Manual reconnect requested", "info");
+        reconnectAttempts = 0;
+        disconnectAndReconnect();
+      }
+
+      function copyStreamURL() {
+        const url = window.location.href;
+        navigator.clipboard
+          .writeText(url)
+          .then(() => {
+            logger.log("Stream URL copied to clipboard", "info");
+          })
+          .catch((err) => {
+            logger.log(`Failed to copy URL: ${err.message}`, "error");
+          });
+      }
+
+      function clearLogs() {
+        logger.clear();
+      }
+
+      function toggleAutoScroll() {
+        isAutoScroll = !isAutoScroll;
+        document.getElementById("autoScrollBtn").textContent = `Auto-scroll: ${
+          isAutoScroll ? "On" : "Off"
+        }`;
+        logger.log(
+          `Auto-scroll ${isAutoScroll ? "enabled" : "disabled"}`,
+          "info"
+        );
+      }
+
+      function exportLogs() {
+        logger.export();
+      }
+
+      // WebSocket connection management
+      function connectWebSocket() {
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          logger.log(
+            "Maximum reconnection attempts reached. Please refresh page.",
+            "error"
+          );
+          showOverlay(
+            "Connection Failed",
+            "Unable to establish connection after multiple attempts. Please refresh the page.",
+            true
+          );
+          return;
         }
-        
-        function refreshConnection() {
-            logger.log('Manual reconnect requested', 'info');
-            reconnectAttempts = 0;
-            disconnectAndReconnect();
+
+        logger.log(
+          `Connecting to signaling server (Attempt ${
+            reconnectAttempts + 1
+          }/${MAX_RECONNECT_ATTEMPTS})`,
+          "info"
+        );
+        updateStatus("wsStatus", "wsDot", "wsText", "warning");
+        updateStat("wsText", "Connecting...");
+
+        try {
+          ws = new WebSocket(WS_URL);
+          setupWebSocketHandlers();
+        } catch (error) {
+          logger.log(`WebSocket creation failed: ${error.message}`, "error");
+          scheduleReconnect();
         }
-        
-        function copyStreamURL() {
-            const url = window.location.href;
-            navigator.clipboard.writeText(url).then(() => {
-                logger.log('Stream URL copied to clipboard', 'info');
-            }).catch(err => {
-                logger.log(`Failed to copy URL: ${err.message}`, 'error');
-            });
-        }
-        
-        function clearLogs() {
-            logger.clear();
-        }
-        
-        function toggleAutoScroll() {
-            isAutoScroll = !isAutoScroll;
-            document.getElementById('autoScrollBtn').textContent = 
-                `Auto-scroll: ${isAutoScroll ? 'On' : 'Off'}`;
-            logger.log(`Auto-scroll ${isAutoScroll ? 'enabled' : 'disabled'}`, 'info');
-        }
-        
-        function exportLogs() {
-            logger.export();
-        }
-        
-        // WebSocket connection management
-        function connectWebSocket() {
-            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                logger.log('Maximum reconnection attempts reached. Please refresh page.', 'error');
-                showOverlay('Connection Failed', 
-                    'Unable to establish connection after multiple attempts. Please refresh the page.',
-                    true);
-                return;
-            }
-            
-            logger.log(`Connecting to signaling server (Attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
-            updateStatus('wsStatus', 'wsDot', 'wsText', 'warning');
-            updateStat('wsText', 'Connecting...');
-            
-            try {
-                ws = new WebSocket(WS_URL);
-                setupWebSocketHandlers();
-            } catch (error) {
-                logger.log(`WebSocket creation failed: ${error.message}`, 'error');
-                scheduleReconnect();
-            }
-        }
-        
-        function setupWebSocketHandlers() {
-            ws.onopen = () => {
-                connectionStartTime = Date.now();
-                reconnectAttempts = 0;
-                
-                logger.log('Connected to signaling server', 'info');
-                updateStatus('wsStatus', 'wsDot', 'wsText', 'connected');
-                updateStat('wsText', 'Connected');
-                
-                // Send identification
-                ws.send(JSON.stringify({
-                    type: 'client-type',
-                    client: 'browser',
-                    timestamp: Date.now(),
-                    userAgent: navigator.userAgent
-                }));
-                
-                // Initialize WebRTC
-                initPeerConnection();
-            };
-            
-            ws.onmessage = async (event) => {
-                try {
-                    const message = JSON.parse(event.data);
-                    await handleSignaling(message);
-                } catch (error) {
-                    logger.log(`Failed to parse message: ${error.message}`, 'error');
-                }
-            };
-            
-            ws.onclose = (event) => {
-                const duration = connectionStartTime ? 
-                    Math.round((Date.now() - connectionStartTime) / 1000) : 0;
-                
-                logger.log(`Disconnected from server (code: ${event.code}, reason: ${event.reason || 'No reason'}) [Duration: ${duration}s]`, 'warn');
-                updateStatus('wsStatus', 'wsDot', 'wsText', 'error');
-                updateStat('wsText', 'Disconnected');
-                
-                // Clean up WebRTC
-                cleanupWebRTC();
-                
-                // Schedule reconnect if not intentional
-                if (event.code !== 1000) { // 1000 = normal closure
-                    scheduleReconnect();
-                }
-            };
-            
-            ws.onerror = (error) => {
-                logger.log(`WebSocket error: ${error.message || 'Unknown error'}`, 'error');
-            };
-        }
-        
-        function scheduleReconnect() {
-            // Exponential backoff with jitter
-            const baseDelay = RECONNECT_BASE_DELAY;
-            const maxDelay = 30000; // 30 seconds max
-            const delay = Math.min(
-                baseDelay * Math.pow(1.5, reconnectAttempts) + Math.random() * 1000,
-                maxDelay
-            );
-            
-            reconnectAttempts++;
-            
-            logger.log(`Reconnecting in ${Math.round(delay/1000)}s... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
-            
-            setTimeout(() => {
-                if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    connectWebSocket();
-                }
-            }, delay);
-        }
-        
-        function disconnectAndReconnect() {
-            logger.log('Disconnecting for reconnect...', 'info');
-            
-            if (ws) {
-                ws.close(1000, 'Reconnecting');
-            }
-            
-            cleanupWebRTC();
-            
-            setTimeout(() => {
-                connectWebSocket();
-            }, 1000);
-        }
-        
-        // WebRTC management
-        function initPeerConnection() {
-            logger.log('Initializing WebRTC peer connection...', 'info');
-            
-            // Clean up existing connection
-            cleanupWebRTC();
-            
-            const config = {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ],
-                iceTransportPolicy: 'all',
-                bundlePolicy: 'max-bundle',
-                rtcpMuxPolicy: 'require',
-                sdpSemantics: 'unified-plan'
-            };
-            
-            try {
-                pc = new RTCPeerConnection(config);
-                setupPeerConnectionHandlers();
-                
-                logger.log('WebRTC peer connection initialized', 'info');
-            } catch (error) {
-                logger.log(`Failed to create peer connection: ${error.message}`, 'error');
-                showOverlay('WebRTC Error', 'Failed to initialize video streaming. Please refresh.', true);
-            }
-        }
-        
-        function setupPeerConnectionHandlers() {
-            // Create global media stream
-            remoteStream = new MediaStream();
-            video.srcObject = remoteStream;
-            
-            // Track event handler
-            pc.ontrack = (event) => {
-                const track = event.track;
-                const kind = track.kind;
-                
-                logger.log(`Received ${kind} track (ID: ${track.id})`, 'info');
-                
-                // Check if track already exists
-                const existingTrack = remoteStream.getTracks().find(t => t.id === track.id);
-                
-                if (!existingTrack) {
-                    remoteStream.addTrack(track);
-                    logger.log(`Added ${kind} track to stream. Total tracks: ${remoteStream.getTracks().length}`, 'info');
-                    
-                    if (kind === 'video') {
-                        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'connected');
-                        updateStat('cameraText', 'Active');
-                        
-                        // Setup video event listeners
-                        setupVideoEvents();
-                        
-                        // Try to play after delay
-                        setTimeout(() => {
-                            attemptPlay();
-                        }, 500);
-                    }
-                }
-            };
-            
-            // ICE candidate handler
-            pc.onicecandidate = (event) => {
-                if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: 'ice-candidate',
-                        sdpMid: event.candidate.sdpMid,
-                        sdpMLineIndex: event.candidate.sdpMLineIndex,
-                        candidate: event.candidate.candidate
-                    }));
-                }
-            };
-            
-            // ICE connection state
-            pc.oniceconnectionstatechange = () => {
-                const state = pc.iceConnectionState;
-                updateStat('statIce', state);
-                
-                logger.log(`ICE connection state: ${state}`, 'info');
-                
-                switch(state) {
-                    case 'connected':
-                    case 'completed':
-                        logger.log('P2P connection established!', 'info');
-                        updateStatus('androidStatus', 'androidDot', 'androidText', 'connected');
-                        updateStat('androidText', 'Connected');
-                        break;
-                        
-                    case 'disconnected':
-                        logger.log('P2P connection unstable', 'warn');
-                        updateStatus('androidStatus', 'androidDot', 'androidText', 'warning');
-                        updateStat('androidText', 'Unstable');
-                        break;
-                        
-                    case 'failed':
-                        logger.log('P2P connection failed', 'error');
-                        updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
-                        updateStat('androidText', 'Failed');
-                        showOverlay('Connection Lost', 'Attempting to reconnect...', false);
-                        break;
-                }
-            };
-            
-            // Connection state
-            pc.onconnectionstatechange = () => {
-                const state = pc.connectionState;
-                updateStat('statConnection', state);
-                
-                logger.log(`Connection state: ${state}`, 'info');
-                
-                if (state === 'connected') {
-                    startStatsMonitor();
-                } else if (state === 'disconnected' || state === 'failed') {
-                    stopStatsMonitor();
-                }
-            };
-            
-            // Signaling state
-            pc.onsignalingstatechange = () => {
-                logger.log(`Signaling state: ${pc.signalingState}`, 'debug');
-            };
-        }        function setupVideoEvents() {
-            video.onloadedmetadata = () => {
-                const width = video.videoWidth;
-                const height = video.videoHeight;
-                
-                if (width && height) {
-                    updateStat('statResolution', `${width}×${height}`);
-                    logger.log(`Video metadata loaded: ${width}×${height}`, 'info');
-                }
-            };
-            
-            video.oncanplay = () => {
-                logger.log('Video ready to play', 'info');
-                
-                if (!isUserInteracted) {
-                    showOverlay('Stream Ready', 'Click anywhere to start playback', true);
-                } else {
-                    attemptPlay();
-                }
-            };
-            
-            video.onplaying = () => {
-                logger.log('Video playback started', 'info');
-                hideOverlay();
-                updateStatus('streamStatus', 'streamDot', 'streamText', 'streaming');
-                updateStat('streamText', 'Streaming');
-                
-                // Enable controls
-                playBtn.disabled = true;
-                playBtn.innerHTML = '<span>▶️</span> Playing';
-            };
-            
-            video.onpause = () => {
-                logger.log('Video paused', 'info');
-                updateStatus('streamStatus', 'streamDot', 'streamText', 'warning');
-                updateStat('streamText', 'Paused');
-                
-                // Enable play button
-                playBtn.disabled = false;
-                playBtn.innerHTML = '<span>▶️</span> Resume';
-            };
-            
-            video.onended = () => {
-                logger.log('Video ended', 'warn');
-                updateStatus('streamStatus', 'streamDot', 'streamText', 'error');
-                updateStat('streamText', 'Ended');
-                showOverlay('Stream Ended', 'Video stream has ended', true);
-            };
-            
-            video.onerror = (e) => {
-                const errorCode = video.error ? video.error.code : 'unknown';
-                logger.log(`Video error: ${errorCode}`, 'error');
-                showOverlay('Video Error', 'Failed to play video stream', true);
-            };
-            
-            // User interaction handler for autoplay
-            document.addEventListener('click', () => {
-                if (!isUserInteracted) {
-                    isUserInteracted = true;
-                    logger.log('User interaction detected, enabling playback', 'info');
-                    
-                    if (video.paused && video.readyState >= 3) {
-                        attemptPlay();
-                    }
-                }
-            }, { once: false });
-        }
-        
-        async function handleSignaling(message) {
-            const { type } = message;
-            
-            switch(type) {
-                case 'android-connected':
-                    logger.log('Android device connected', 'info');
-                    updateStatus('androidStatus', 'androidDot', 'androidText', 'connected');
-                    updateStat('androidText', 'Connected');
-                    showOverlay('Android Connected', 'Waiting for video stream...', false);
-                    break;
-                    
-                case 'android-disconnected':
-                    logger.log(`Android disconnected: ${message.reason || 'Unknown reason'}`, 'warn');
-                    updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
-                    updateStat('androidText', 'Disconnected');
-                    showOverlay('Android Disconnected', 'Device disconnected. Reconnecting...', false);
-                    break;
-                    
-                case 'camera-status':
-                    logger.log(`Camera status: ${message.status}`, 'info');
-                    if (message.status === 'streaming') {
-                        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'streaming');
-                        updateStat('cameraText', 'Streaming');
-                    } else if (message.status === 'opening') {
-                        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'warning');
-                        updateStat('cameraText', 'Opening...');
-                    }
-                    break;
-                    
-                case 'camera-error':
-                    logger.log(`Camera error: ${message.message}`, 'error');
-                    updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'error');
-                    updateStat('cameraText', 'Error');
-                    showOverlay('Camera Error', message.message, true);
-                    break;
-                    
-                case 'offer':
-                    logger.log('Received SDP offer', 'info');
-                    
-                    try {
-                        await pc.setRemoteDescription({
-                            type: 'offer',
-                            sdp: message.sdp
-                        });
-                        
-                        const answer = await pc.createAnswer({
-                            offerToReceiveAudio: true,
-                            offerToReceiveVideo: true
-                        });
-                        
-                        await pc.setLocalDescription(answer);
-                        
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({
-                                type: 'answer',
-                                sdp: answer.sdp,
-                                timestamp: Date.now()
-                            }));
-                            
-                            logger.log('Sent SDP answer', 'info');
-                        }
-                    } catch (error) {
-                        logger.log(`Failed to handle offer: ${error.message}`, 'error');
-                    }
-                    break;
-                    
-                case 'ice-candidate':
-                    try {
-                        await pc.addIceCandidate({
-                            sdpMid: message.sdpMid,
-                            sdpMLineIndex: message.sdpMLineIndex,
-                            candidate: message.candidate
-                        });
-                    } catch (error) {
-                        // Often safe to ignore
-                    }
-                    break;
-                    
-                case 'error':
-                    logger.log(`Server error: ${message.message}`, 'error');
-                    break;
-                    
-                case 'android-status':
-                    if (message.status === 'disconnected') {
-                        logger.log('Android status: disconnected', 'warn');
-                        updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
-                        updateStat('androidText', 'Offline');
-                    }
-                    break;
-            }
-        }
-        
-        function attemptPlay() {
-            // Reset attempts if successful before
-            if (!video.paused) {
-                return;
-            }
-            
-            videoPlayAttempts++;
-            
-            if (videoPlayAttempts > 3) {
-                logger.log('Too many play attempts, showing manual button', 'warn');
-                showOverlay('Playback Blocked', 'Click the button below to start streaming', true);
-                return;
-            }
-            
-            if (!video.srcObject || remoteStream.getVideoTracks().length === 0) {
-                logger.log('No video source available, retrying...', 'warn');
-                setTimeout(attemptPlay, 1000);
-                return;
-            }
-            
-            // Ensure video is ready
-            if (video.readyState < 3) {
-                logger.log(`Video not ready (state: ${video.readyState}), waiting...`, 'info');
-                setTimeout(attemptPlay, 500);
-                return;
-            }
-            
-            logger.log(`Attempting to play video (attempt ${videoPlayAttempts}/3)`, 'info');
-            
-            // Strategy 1: Try muted autoplay (most browsers allow this)
-            video.muted = true;
-            video.playsInline = true;
-            
-            const playPromise = video.play();
-            
-            if (playPromise !== undefined) {
-                playPromise
-                    .then(() => {
-                        logger.log('Video playback started successfully!', 'info');
-                        videoPlayAttempts = 0; // Reset on success
-                    })
-                    .catch(error => {
-                        logger.log(`Autoplay failed: ${error.name}`, 'warn');
-                        
-                        // Strategy 2: Try with user interaction flag
-                        if (isUserInteracted) {
-                            video.play().catch(e => {
-                                logger.log(`Play failed even with user interaction: ${e.message}`, 'error');
-                                showOverlay('Playback Blocked', 'Browser prevented video playback', true);
-                            });
-                        } else {
-                            showOverlay('Action Required', 'Click anywhere or press play button to start', true);
-                        }
-                    });
-            }
-        }
-        
-        window.forcePlay = function() {
-            logger.log('Manual play requested', 'info');
-            isUserInteracted = true;
-            videoPlayAttempts = 0;
-            
-            video.muted = false; // Try with audio
-            video.play()
-                .then(() => {
-                    logger.log('Manual play successful', 'info');
-                })
-                .catch(error => {
-                    logger.log(`Manual play failed: ${error.message}`, 'error');
-                    
-                    // Last resort: try muted
-                    video.muted = true;
-                    video.play().catch(e => {
-                        logger.log('All play attempts failed', 'error');
-                        showOverlay('Playback Error', 
-                            'Cannot play video. Please check browser permissions and try again.', 
-                            true);
-                    });
-                });
+      }
+
+      function setupWebSocketHandlers() {
+        ws.onopen = () => {
+          connectionStartTime = Date.now();
+          reconnectAttempts = 0;
+
+          logger.log("Connected to signaling server", "info");
+          updateStatus("wsStatus", "wsDot", "wsText", "connected");
+          updateStat("wsText", "Connected");
+
+          // Send identification
+          ws.send(
+            JSON.stringify({
+              type: "client-type",
+              client: "browser",
+              timestamp: Date.now(),
+              userAgent: navigator.userAgent,
+            })
+          );
+
+          // Initialize WebRTC
+          initPeerConnection();
         };
-        
-        function startStatsMonitor() {
-            stopStatsMonitor();
-            
-            statsInterval = setInterval(async () => {
-                if (!pc || pc.connectionState !== 'connected') return;
-                
-                try {
-                    const stats = await pc.getStats();
-                    let videoBytes = 0;
-                    let width = 0;
-                    let height = 0;
-                    let fps = 0;
-                    
-                    stats.forEach(report => {
-                        if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                            videoBytes = report.bytesReceived || 0;
-                            width = report.frameWidth || 0;
-                            height = report.frameHeight || 0;
-                            fps = report.framesPerSecond || 0;
-                        }
-                    });
-                    
-                    // Calculate bitrate
-                    const now = Date.now();
-                    const timeDiff = (now - lastTimestamp) / 1000;
-                    
-                    if (lastBytesReceived > 0 && timeDiff > 0.5) {
-                        const bytesDiff = videoBytes - lastBytesReceived;
-                        const bitrate = Math.round((bytesDiff * 8) / timeDiff / 1000);
-                        
-                        if (bitrate > 0 && bitrate < 10000) {
-                            updateStat('statBitrate', `${bitrate} kbps`);
-                        }
-                    }
-                    
-                    lastBytesReceived = videoBytes;
-                    lastTimestamp = now;
-                    
-                    if (width > 0 && height > 0) {
-                        updateStat('statResolution', `${width}×${height}`);
-                    }
-                    
-                } catch (error) {
-                    // Silent fail for stats errors
-                }
-            }, STATS_INTERVAL);
-        }
-        
-        function stopStatsMonitor() {
-            if (statsInterval) {
-                clearInterval(statsInterval);
-                statsInterval = null;
-            }
-            lastBytesReceived = 0;
-            lastTimestamp = Date.now();
-        }
-        
-        function cleanupWebRTC() {
-            // Stop stats
-            stopStatsMonitor();
-            
-            // Close peer connection
-            if (pc) {
-                pc.close();
-                pc = null;
-            }
-            
-            // Clear stream
-            if (remoteStream) {
-                remoteStream.getTracks().forEach(track => track.stop());
-                remoteStream = null;
-            }
-            
-            // Clear video
-            video.srcObject = null;
-            video.pause();
-            
-            // Reset UI
-            updateStatus('streamStatus', 'streamDot', 'streamText', 'error');
-            updateStat('streamText', 'No Stream');
-            updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'error');
-            updateStat('cameraText', 'Off');
-            
-            playBtn.disabled = false;
-            playBtn.innerHTML = '<span>▶️</span> Play Stream';
-            
-            videoPlayAttempts = 0;
-        }
-        
-        // Start connection when page loads
-        window.addEventListener('load', () => {
-            logger.log('Page loaded, starting connection...', 'info');
+
+        ws.onmessage = async (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            await handleSignaling(message);
+          } catch (error) {
+            logger.log(`Failed to parse message: ${error.message}`, "error");
+          }
+        };
+
+        ws.onclose = (event) => {
+          const duration = connectionStartTime
+            ? Math.round((Date.now() - connectionStartTime) / 1000)
+            : 0;
+
+          logger.log(
+            `Disconnected from server (code: ${event.code}, reason: ${
+              event.reason || "No reason"
+            }) [Duration: ${duration}s]`,
+            "warn"
+          );
+          updateStatus("wsStatus", "wsDot", "wsText", "error");
+          updateStat("wsText", "Disconnected");
+
+          // Clean up WebRTC
+          cleanupWebRTC();
+
+          // Schedule reconnect if not intentional
+          if (event.code !== 1000) {
+            // 1000 = normal closure
+            scheduleReconnect();
+          }
+        };
+
+        ws.onerror = (error) => {
+          logger.log(
+            `WebSocket error: ${error.message || "Unknown error"}`,
+            "error"
+          );
+        };
+      }
+
+      function scheduleReconnect() {
+        // Exponential backoff with jitter
+        const baseDelay = RECONNECT_BASE_DELAY;
+        const maxDelay = 30000; // 30 seconds max
+        const delay = Math.min(
+          baseDelay * Math.pow(1.5, reconnectAttempts) + Math.random() * 1000,
+          maxDelay
+        );
+
+        reconnectAttempts++;
+
+        logger.log(
+          `Reconnecting in ${Math.round(
+            delay / 1000
+          )}s... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`,
+          "info"
+        );
+
+        setTimeout(() => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
             connectWebSocket();
-            
-            // Handle page visibility
-            document.addEventListener('visibilitychange', () => {
-                if (document.hidden) {
-                    logger.log('Page hidden', 'info');
-                } else {
-                    logger.log('Page visible, checking connection...', 'info');
-                    if (!ws || ws.readyState !== WebSocket.OPEN) {
-                        connectWebSocket();
-                    }
-                }
+          }
+        }, delay);
+      }
+
+      function disconnectAndReconnect() {
+        logger.log("Disconnecting for reconnect...", "info");
+
+        if (ws) {
+          ws.close(1000, "Reconnecting");
+        }
+
+        cleanupWebRTC();
+
+        setTimeout(() => {
+          connectWebSocket();
+        }, 1000);
+      }
+
+      // WebRTC management
+      function initPeerConnection() {
+        // Clean up existing connection
+        cleanupWebRTC();
+
+        const config = {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun2.l.google.com:19302" },
+            // Add TURN servers for better connectivity
+            {
+              urls: [
+                "turn:openrelay.metered.ca:80",
+                "turn:openrelay.metered.ca:443",
+                "turn:openrelay.metered.ca:443?transport=tcp",
+              ],
+              username: "openrelayproject",
+              credential: "openrelayproject",
+            },
+          ],
+          iceTransportPolicy: "all",
+          bundlePolicy: "max-bundle",
+          rtcpMuxPolicy: "require",
+          sdpSemantics: "unified-plan",
+          iceCandidatePoolSize: 10, // Increase candidate pool
+        };
+
+        try {
+          pc = new RTCPeerConnection(config);
+          setupPeerConnectionHandlers();
+          logger.log("WebRTC peer connection initialized", "info");
+        } catch (error) {
+          logger.log(
+            `Failed to create peer connection: ${error.message}`,
+            "error"
+          );
+        }
+      }
+
+      
+      function setupPeerConnectionHandlers() {
+        // Create global media stream
+        remoteStream = new MediaStream();
+        video.srcObject = remoteStream;
+
+        // Track event handler
+        pc.ontrack = (event) => {
+          const track = event.track;
+          const kind = track.kind;
+
+          logger.log(`Received ${kind} track (ID: ${track.id})`, "info");
+
+          // Check if track already exists
+          const existingTrack = remoteStream
+            .getTracks()
+            .find((t) => t.id === track.id);
+
+          if (!existingTrack) {
+            remoteStream.addTrack(track);
+            logger.log(
+              `Added ${kind} track to stream. Total tracks: ${
+                remoteStream.getTracks().length
+              }`,
+              "info"
+            );
+
+            if (kind === "video") {
+              updateStatus(
+                "cameraStatus",
+                "cameraDot",
+                "cameraText",
+                "connected"
+              );
+              updateStat("cameraText", "Active");
+
+              // Setup video event listeners
+              setupVideoEvents();
+
+              // Try to play after delay
+              setTimeout(() => {
+                attemptPlay();
+              }, 500);
+            }
+          }
+        };
+
+        // ICE candidate handler
+        pc.onicecandidate = (event) => {
+          if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "ice-candidate",
+                sdpMid: event.candidate.sdpMid,
+                sdpMLineIndex: event.candidate.sdpMLineIndex,
+                candidate: event.candidate.candidate,
+              })
+            );
+          }
+        };
+
+        // ICE connection state
+        pc.oniceconnectionstatechange = () => {
+          const state = pc.iceConnectionState;
+          updateStat("statIce", state);
+
+          logger.log(`ICE connection state: ${state}`, "info");
+
+          switch (state) {
+            case "connected":
+            case "completed":
+              logger.log("P2P connection established!", "info");
+              updateStatus(
+                "androidStatus",
+                "androidDot",
+                "androidText",
+                "connected"
+              );
+              updateStat("androidText", "Connected");
+              break;
+
+            case "disconnected":
+              logger.log("P2P connection unstable", "warn");
+              updateStatus(
+                "androidStatus",
+                "androidDot",
+                "androidText",
+                "warning"
+              );
+              updateStat("androidText", "Unstable");
+              break;
+
+            case "failed":
+              logger.log("P2P connection failed", "error");
+              updateStatus(
+                "androidStatus",
+                "androidDot",
+                "androidText",
+                "error"
+              );
+              updateStat("androidText", "Failed");
+              showOverlay(
+                "Connection Lost",
+                "Attempting to reconnect...",
+                false
+              );
+              break;
+          }
+        };
+
+        // Connection state
+        pc.onconnectionstatechange = () => {
+          const state = pc.connectionState;
+          updateStat("statConnection", state);
+
+          logger.log(`Connection state: ${state}`, "info");
+
+          if (state === "connected") {
+            startStatsMonitor();
+          } else if (state === "disconnected" || state === "failed") {
+            stopStatsMonitor();
+          }
+        };
+
+        // Signaling state
+        pc.onsignalingstatechange = () => {
+          logger.log(`Signaling state: ${pc.signalingState}`, "debug");
+        };
+      }
+      function setupVideoEvents() {
+
+         // Reset video element
+    video.srcObject = null;
+    
+    // Set properties untuk autoplay compliance
+    video.playsInline = true;
+    video.muted = true; // Mute by default
+    video.autoplay = true;
+    video.controls = false; // Disable native controls
+        video.onloadedmetadata = () => {
+          const width = video.videoWidth;
+          const height = video.videoHeight;
+
+          if (width && height) {
+            updateStat("statResolution", `${width}×${height}`);
+            logger.log(`Video metadata loaded: ${width}×${height}`, "info");
+          }
+        };
+
+        video.oncanplay = () => {
+          logger.log("Video ready to play", "info");
+
+          if (!isUserInteracted) {
+            showOverlay(
+              "Stream Ready",
+              "Click anywhere to start playback",
+              true
+            );
+          } else {
+            attemptPlay();
+          }
+        };
+
+        video.onplaying = () => {
+          logger.log("Video playback started", "info");
+          hideOverlay();
+          updateStatus("streamStatus", "streamDot", "streamText", "streaming");
+          updateStat("streamText", "Streaming");
+
+          // Enable controls
+          playBtn.disabled = true;
+          playBtn.innerHTML = "<span>▶️</span> Playing";
+        };
+
+        video.onpause = () => {
+          logger.log("Video paused", "info");
+          updateStatus("streamStatus", "streamDot", "streamText", "warning");
+          updateStat("streamText", "Paused");
+
+          // Enable play button
+          playBtn.disabled = false;
+          playBtn.innerHTML = "<span>▶️</span> Resume";
+        };
+
+        video.onended = () => {
+          logger.log("Video ended", "warn");
+          updateStatus("streamStatus", "streamDot", "streamText", "error");
+          updateStat("streamText", "Ended");
+          showOverlay("Stream Ended", "Video stream has ended", true);
+        };
+
+        video.onerror = (e) => {
+          const errorCode = video.error ? video.error.code : "unknown";
+          logger.log(`Video error: ${errorCode}`, "error");
+          showOverlay("Video Error", "Failed to play video stream", true);
+        };
+
+        // User interaction handler for autoplay
+        document.addEventListener(
+          "click",
+          () => {
+            if (!isUserInteracted) {
+              isUserInteracted = true;
+              logger.log(
+                "User interaction detected, enabling playback",
+                "info"
+              );
+
+              if (video.paused && video.readyState >= 3) {
+                attemptPlay();
+              }
+            }
+          },
+          { once: false }
+        );
+      }
+
+      async function handleSignaling(message) {
+        const { type } = message;
+
+        switch (type) {
+          case "android-connected":
+            logger.log("Android device connected", "info");
+            updateStatus(
+              "androidStatus",
+              "androidDot",
+              "androidText",
+              "connected"
+            );
+            updateStat("androidText", "Connected");
+            showOverlay(
+              "Android Connected",
+              "Waiting for video stream...",
+              false
+            );
+            break;
+
+          case "android-disconnected":
+            logger.log(
+              `Android disconnected: ${message.reason || "Unknown reason"}`,
+              "warn"
+            );
+            updateStatus("androidStatus", "androidDot", "androidText", "error");
+            updateStat("androidText", "Disconnected");
+            showOverlay(
+              "Android Disconnected",
+              "Device disconnected. Reconnecting...",
+              false
+            );
+            break;
+
+          case "camera-status":
+            logger.log(`Camera status: ${message.status}`, "info");
+            if (message.status === "streaming") {
+              updateStatus(
+                "cameraStatus",
+                "cameraDot",
+                "cameraText",
+                "streaming"
+              );
+              updateStat("cameraText", "Streaming");
+            } else if (message.status === "opening") {
+              updateStatus(
+                "cameraStatus",
+                "cameraDot",
+                "cameraText",
+                "warning"
+              );
+              updateStat("cameraText", "Opening...");
+            }
+            break;
+
+          case "camera-error":
+            logger.log(`Camera error: ${message.message}`, "error");
+            updateStatus("cameraStatus", "cameraDot", "cameraText", "error");
+            updateStat("cameraText", "Error");
+            showOverlay("Camera Error", message.message, true);
+            break;
+
+          case "offer":
+            logger.log("Received SDP offer", "info");
+
+            try {
+              await pc.setRemoteDescription({
+                type: "offer",
+                sdp: message.sdp,
+              });
+
+              const answer = await pc.createAnswer({
+                offerToReceiveAudio: true,
+                offerToReceiveVideo: true,
+              });
+
+              await pc.setLocalDescription(answer);
+
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(
+                  JSON.stringify({
+                    type: "answer",
+                    sdp: answer.sdp,
+                    timestamp: Date.now(),
+                  })
+                );
+
+                logger.log("Sent SDP answer", "info");
+              }
+            } catch (error) {
+              logger.log(`Failed to handle offer: ${error.message}`, "error");
+            }
+            break;
+
+          case "ice-candidate":
+            try {
+              await pc.addIceCandidate({
+                sdpMid: message.sdpMid,
+                sdpMLineIndex: message.sdpMLineIndex,
+                candidate: message.candidate,
+              });
+            } catch (error) {
+              // Often safe to ignore
+            }
+            break;
+
+          case "error":
+            logger.log(`Server error: ${message.message}`, "error");
+            break;
+
+          case "android-status":
+            if (message.status === "disconnected") {
+              logger.log("Android status: disconnected", "warn");
+              updateStatus(
+                "androidStatus",
+                "androidDot",
+                "androidText",
+                "error"
+              );
+              updateStat("androidText", "Offline");
+            }
+            break;
+        }
+      }
+
+      function attemptPlay() {
+        if (!video.paused) return;
+
+        // Cek apakah user sudah berinteraksi
+        if (!isUserInteracted) {
+          showOverlay(
+            "Action Required",
+            'Click the "Start Streaming" button below to begin',
+            true
+          );
+          return;
+        }
+
+        // Reset jika video sudah ready
+        if (video.readyState >= 3) {
+          video
+            .play()
+            .then(() => {
+              logger.log("Video playback started successfully!", "info");
+              hideOverlay();
+            })
+            .catch((error) => {
+              logger.log(`Play failed: ${error.name}`, "error");
+              // Try muted playback
+              video.muted = true;
+              video.play().catch((e) => {
+                logger.log("Muted playback also failed", "error");
+              });
             });
-            
-            // Handle beforeunload
-            window.addEventListener('beforeunload', () => {
-                if (ws) {
-                    ws.close(1000, 'Page closed');
-                }
-                cleanupWebRTC();
+        }
+      }
+
+      // Perbaiki forcePlay()
+      window.forcePlay = function () {
+        logger.log("Manual play requested", "info");
+        isUserInteracted = true;
+
+        // Pastikan video track ada
+        if (remoteStream && remoteStream.getVideoTracks().length > 0) {
+          logger.log(
+            `Video track available: ${
+              remoteStream.getVideoTracks()[0].readyState
+            }`,
+            "info"
+          );
+        }
+
+        video.muted = true; // Start dengan muted
+        video
+          .play()
+          .then(() => {
+            logger.log("Manual play successful", "info");
+            video.muted = false; // Coba unmute setelah play
+          })
+          .catch((error) => {
+            logger.log(`Manual play failed: ${error.message}`, "error");
+          });
+      };
+
+      function startStatsMonitor() {
+        stopStatsMonitor();
+
+        statsInterval = setInterval(async () => {
+          if (!pc || pc.connectionState !== "connected") return;
+
+          try {
+            const stats = await pc.getStats();
+            let videoBytes = 0;
+            let width = 0;
+            let height = 0;
+            let fps = 0;
+
+            stats.forEach((report) => {
+              if (report.type === "inbound-rtp" && report.kind === "video") {
+                videoBytes = report.bytesReceived || 0;
+                width = report.frameWidth || 0;
+                height = report.frameHeight || 0;
+                fps = report.framesPerSecond || 0;
+              }
             });
+
+            // Calculate bitrate
+            const now = Date.now();
+            const timeDiff = (now - lastTimestamp) / 1000;
+
+            if (lastBytesReceived > 0 && timeDiff > 0.5) {
+              const bytesDiff = videoBytes - lastBytesReceived;
+              const bitrate = Math.round((bytesDiff * 8) / timeDiff / 1000);
+
+              if (bitrate > 0 && bitrate < 10000) {
+                updateStat("statBitrate", `${bitrate} kbps`);
+              }
+            }
+
+            lastBytesReceived = videoBytes;
+            lastTimestamp = now;
+
+            if (width > 0 && height > 0) {
+              updateStat("statResolution", `${width}×${height}`);
+            }
+          } catch (error) {
+            // Silent fail for stats errors
+          }
+        }, STATS_INTERVAL);
+      }
+
+      function stopStatsMonitor() {
+        if (statsInterval) {
+          clearInterval(statsInterval);
+          statsInterval = null;
+        }
+        lastBytesReceived = 0;
+        lastTimestamp = Date.now();
+      }
+
+      function cleanupWebRTC() {
+        // Stop stats
+        stopStatsMonitor();
+
+        // Close peer connection
+        if (pc) {
+          pc.close();
+          pc = null;
+        }
+
+        // Clear stream
+        if (remoteStream) {
+          remoteStream.getTracks().forEach((track) => track.stop());
+          remoteStream = null;
+        }
+
+        // Clear video
+        video.srcObject = null;
+        video.pause();
+
+        // Reset UI
+        updateStatus("streamStatus", "streamDot", "streamText", "error");
+        updateStat("streamText", "No Stream");
+        updateStatus("cameraStatus", "cameraDot", "cameraText", "error");
+        updateStat("cameraText", "Off");
+
+        playBtn.disabled = false;
+        playBtn.innerHTML = "<span>▶️</span> Play Stream";
+
+        videoPlayAttempts = 0;
+      }
+
+      // Start connection when page loads
+      window.addEventListener("load", () => {
+        logger.log("Page loaded, starting connection...", "info");
+        connectWebSocket();
+
+        // Handle page visibility
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            logger.log("Page hidden", "info");
+          } else {
+            logger.log("Page visible, checking connection...", "info");
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+              connectWebSocket();
+            }
+          }
         });
-        
-        // Make debug functions available
-        window.debugStream = function() {
-            logger.log('=== STREAM DEBUG ===', 'debug');
-            logger.log(`Video readyState: ${video.readyState}`, 'debug');
-            logger.log(`Video paused: ${video.paused}`, 'debug');
-            logger.log(`Video muted: ${video.muted}`, 'debug');
-            logger.log(`Video srcObject: ${video.srcObject ? 'SET' : 'NULL'}`, 'debug');
-            
-            if (video.srcObject) {
-                const tracks = video.srcObject.getTracks();
-                logger.log(`Tracks: ${tracks.length}`, 'debug');
-                tracks.forEach((track, i) => {
-                    logger.log(`  Track ${i}: ${track.kind} - ${track.readyState}`, 'debug');
-                });
-            }
-            
-            if (pc) {
-                logger.log(`ICE state: ${pc.iceConnectionState}`, 'debug');
-                logger.log(`Connection state: ${pc.connectionState}`, 'debug');
-                logger.log(`Signaling state: ${pc.signalingState}`, 'debug');
-            }
-            
-            logger.log(`WebSocket state: ${ws ? ws.readyState : 'NO WS'}`, 'debug');
-            logger.log(`User interacted: ${isUserInteracted}`, 'debug');
-            logger.log('=== END DEBUG ===', 'debug');
-        };
-        
-        window.restartStream = function() {
-            logger.log('Manual stream restart requested', 'info');
-            disconnectAndReconnect();
-        };
+
+        // Handle beforeunload
+        window.addEventListener("beforeunload", () => {
+          if (ws) {
+            ws.close(1000, "Page closed");
+          }
+          cleanupWebRTC();
+        });
+      });
+
+      // Make debug functions available
+      window.debugStream = function () {
+        logger.log("=== STREAM DEBUG ===", "debug");
+        logger.log(`Video readyState: ${video.readyState}`, "debug");
+        logger.log(`Video paused: ${video.paused}`, "debug");
+        logger.log(`Video muted: ${video.muted}`, "debug");
+        logger.log(
+          `Video srcObject: ${video.srcObject ? "SET" : "NULL"}`,
+          "debug"
+        );
+
+        if (video.srcObject) {
+          const tracks = video.srcObject.getTracks();
+          logger.log(`Tracks: ${tracks.length}`, "debug");
+          tracks.forEach((track, i) => {
+            logger.log(
+              `  Track ${i}: ${track.kind} - ${track.readyState}`,
+              "debug"
+            );
+          });
+        }
+
+        if (pc) {
+          logger.log(`ICE state: ${pc.iceConnectionState}`, "debug");
+          logger.log(`Connection state: ${pc.connectionState}`, "debug");
+          logger.log(`Signaling state: ${pc.signalingState}`, "debug");
+        }
+
+        logger.log(`WebSocket state: ${ws ? ws.readyState : "NO WS"}`, "debug");
+        logger.log(`User interacted: ${isUserInteracted}`, "debug");
+        logger.log("=== END DEBUG ===", "debug");
+      };
+
+      window.restartStream = function () {
+        logger.log("Manual stream restart requested", "info");
+        disconnectAndReconnect();
+      };
     </script>
-</body>
+  </body>
 </html>
