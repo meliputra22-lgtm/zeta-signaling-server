@@ -37,35 +37,57 @@ const wss = new WebSocket.Server({
 let androidClients = new Map();
 let browserClients = new Map();
 
-const PING_INTERVAL = 30000;
-const CLIENT_TIMEOUT = 90000;
+const PING_INTERVAL = 25000; // 25 seconds
+const CLIENT_TIMEOUT = 90000; // 90 seconds
 
 console.log('🚀 Zeta Signaling Server (Render Edition)');
 console.log('━'.repeat(50));
 
-// Keepalive
+// Heartbeat system untuk semua clients
 setInterval(() => {
     const now = Date.now();
     
-    androidClients.forEach((client, id) => {
-        if (client.ws.readyState === WebSocket.OPEN) {
-            client.ws.ping();
-            console.log(`💓 Ping to Android: ${id}`);
-        } else {
-            cleanupAndroidClient(id);
+    wss.clients.forEach((client) => {
+        try {
+            if (client.readyState === WebSocket.OPEN) {
+                // Kirim ping jika sudah lebih dari 25 detik
+                if (now - (client.lastPing || 0) > PING_INTERVAL) {
+                    client.ping();
+                    client.lastPing = now;
+                    
+                    // Log untuk debugging
+                    if (androidClients.has(client.clientId)) {
+                        console.log(`💓 Ping to Android: ${client.clientId}`);
+                    }
+                }
+                
+                // Cek timeout (no pong in 90 seconds)
+                if (now - (client.lastPong || 0) > CLIENT_TIMEOUT) {
+                    console.log(`⏰ Client timeout: ${client.clientId}`);
+                    
+                    // Force close connection
+                    try {
+                        client.close(1000, 'Timeout - no pong received');
+                    } catch (error) {
+                        console.error('Error closing client:', error.message);
+                    }
+                    
+                    // Cleanup dari tracking maps
+                    if (androidClients.has(client.clientId)) {
+                        cleanupAndroidClient(client.clientId);
+                    }
+                    if (browserClients.has(client.clientId)) {
+                        cleanupBrowserClient(client.clientId);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error in heartbeat:', error.message);
         }
     });
-    
-    browserClients.forEach((client, id) => {
-        if (client.ws.readyState === WebSocket.OPEN) {
-            client.ws.ping();
-        } else {
-            cleanupBrowserClient(id);
-        }
-    });
-}, PING_INTERVAL);
+}, 10000); // Check every 10 seconds
 
-// Cleanup stale connections
+// Cleanup stale connections khusus untuk Android
 setInterval(() => {
     const now = Date.now();
     androidClients.forEach((client, id) => {
@@ -82,10 +104,22 @@ wss.on('connection', (ws, req) => {
     
     console.log(`📱 New connection: ${clientId}`);
     
-    let lastPong = Date.now();
+    // Tambahkan properti tracking ke WebSocket object
+    ws.clientId = clientId;
+    ws.lastPong = Date.now();
+    ws.lastPing = Date.now() - PING_INTERVAL; // Set agar ping segera dilakukan
     
+    // Pong handler
     ws.on('pong', () => {
-        lastPong = Date.now();
+        ws.lastPong = Date.now();
+        console.log(`💓 Pong from client: ${clientId}`);
+        
+        // Update lastSeen untuk Android/Browser clients
+        if (androidClients.has(clientId)) {
+            androidClients.get(clientId).lastSeen = Date.now();
+        } else if (browserClients.has(clientId)) {
+            browserClients.get(clientId).lastSeen = Date.now();
+        }
     });
     
     ws.on('message', (data) => {
@@ -99,11 +133,12 @@ wss.on('connection', (ws, req) => {
                     timestamp: Date.now(),
                     serverTime: new Date().toISOString()
                 }));
+                ws.lastPong = Date.now();
                 return;
             }
             
             if (type === 'pong') {
-                lastPong = Date.now();
+                ws.lastPong = Date.now();
                 return;
             }
             
@@ -193,7 +228,12 @@ wss.on('connection', (ws, req) => {
     });
     
     ws.on('close', (code, reason) => {
-        console.log(`🔌 Client disconnected: ${code}`);
+        console.log(`🔌 Client disconnected: ${code} - ${clientId} - ${reason || 'No reason'}`);
+        
+        // Hapus properti
+        delete ws.clientId;
+        delete ws.lastPong;
+        delete ws.lastPing;
         
         if (androidClients.has(clientId)) {
             cleanupAndroidClient(clientId);
@@ -205,7 +245,7 @@ wss.on('connection', (ws, req) => {
     });
     
     ws.on('error', (error) => {
-        console.error(`❌ WebSocket error:`, error.message);
+        console.error(`❌ WebSocket error: ${error.message} - ${clientId}`);
     });
 });
 
@@ -219,7 +259,7 @@ function broadcastToBrowsers(message) {
                 client.ws.send(data);
                 successCount++;
             } catch (error) {
-                console.error(`❌ Broadcast failed:`, error.message);
+                console.error(`❌ Broadcast failed: ${error.message}`);
             }
         }
     });
@@ -230,25 +270,46 @@ function broadcastToBrowsers(message) {
 }
 
 function cleanupAndroidClient(clientId) {
-    androidClients.delete(clientId);
-    console.log(`❌ Android disconnected: ${clientId}`);
-    
-    broadcastToBrowsers({
-        type: 'android-disconnected',
-        androidId: clientId,
-        timestamp: Date.now()
-    });
+    if (androidClients.has(clientId)) {
+        const client = androidClients.get(clientId);
+        if (client.ws.readyState === WebSocket.OPEN) {
+            try {
+                client.ws.close(1000, 'Android cleanup');
+            } catch (error) {
+                // Ignore
+            }
+        }
+        androidClients.delete(clientId);
+        console.log(`❌ Android disconnected: ${clientId}`);
+        
+        broadcastToBrowsers({
+            type: 'android-disconnected',
+            androidId: clientId,
+            timestamp: Date.now()
+        });
+    }
 }
 
 function cleanupBrowserClient(clientId) {
-    browserClients.delete(clientId);
-    console.log(`❌ Browser disconnected: ${clientId}`);
+    if (browserClients.has(clientId)) {
+        const client = browserClients.get(clientId);
+        if (client.ws.readyState === WebSocket.OPEN) {
+            try {
+                client.ws.close(1000, 'Browser cleanup');
+            } catch (error) {
+                // Ignore
+            }
+        }
+        browserClients.delete(clientId);
+        console.log(`❌ Browser disconnected: ${clientId}`);
+    }
 }
 
 // Start server
 server.listen(PORT, () => {
     console.log(`\n💡 Server running on port ${PORT}`);
     console.log(`🌐 WebSocket endpoint: wss://[your-app].onrender.com/ws`);
+    console.log(`💓 Heartbeat interval: ${PING_INTERVAL/1000}s, Timeout: ${CLIENT_TIMEOUT/1000}s`);
     console.log('⏳ Waiting for connections...\n');
 });
 
