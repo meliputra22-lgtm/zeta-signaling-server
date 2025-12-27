@@ -512,24 +512,41 @@
 
             pc = new RTCPeerConnection(config);
 
-            pc.ontrack = (event) => {
-                log('🎥 Received media track: ' + event.track.kind, 'info');
-                
-                if (event.track.kind === 'video') {
-                    // ✅ Set video srcObject
-                    if (video.srcObject !== event.streams[0]) {
-                        video.srcObject = event.streams[0];
-                        log('✅ Video stream attached', 'info');
-                        
-                        // ✅ FIXED: Force unmute and play immediately
-                        video.muted = true; // Critical for autoplay
-                        video.volume = 0;
-                        
-                        // Try to play immediately
-                        attemptPlay();
-                    }
-                }
-            };
+        pc.ontrack = (event) => {
+    log('🎥 Received media track: ' + event.track.kind, 'info');
+    
+    if (event.track.kind === 'video') {
+        // ✅ FIXED: Properly set srcObject
+        if (!video.srcObject) {
+            video.srcObject = event.streams[0];
+            log('✅ Video stream attached', 'info');
+        }
+        
+        // ✅ Force video to be ready
+        video.load();
+        
+        // ✅ Play setelah metadata loaded
+        video.onloadedmetadata = () => {
+            log('📺 Video metadata loaded', 'info');
+            video.muted = true;
+            video.play().then(() => {
+                log('▶️ Video playing!', 'info');
+                videoOverlay.classList.add('hidden');
+                document.getElementById('streamText').textContent = 'Streaming';
+                updateStatus('streamStatus', 'streamDot', 'streamText', 'streaming');
+                startStatsMonitor();
+            }).catch(e => {
+                log('❌ Play failed: ' + e.message, 'error');
+                // Show click button
+                overlayText.innerHTML = `
+                    <button onclick="video.play()" style="padding:15px 30px;background:#4CAF50;border:none;border-radius:8px;color:white;font-size:16px;cursor:pointer;">
+                        ▶️ Click to Play
+                    </button>`;
+                document.querySelector('.spinner').style.display = 'none';
+            });
+        };
+    }
+};
             
             // ✅ ADDED: Robust play function with retry
             function attemptPlay() {
