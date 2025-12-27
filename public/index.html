@@ -422,593 +422,953 @@
         </div>
     </div>
 
-    <script>
-        const WS_URL = 'ws://localhost:8080';
+ <script>
+    // Configuration
+    const WS_URL = `wss://zeta-signaling-server-production-e448.up.railway.app/ws`;
+    const STATS_INTERVAL = 1000; // 1 second
+    const MAX_RECONNECT_ATTEMPTS = 10;
+    const RECONNECT_BASE_DELAY = 3000;
+    
+    // Global state
+    let ws = null;
+    let pc = null;
+    let remoteStream = null;
+    let statsInterval = null;
+    let reconnectAttempts = 0;
+    let isUserInteracted = false;
+    let isAutoScroll = true;
+    let connectionStartTime = 0;
+    let lastBytesReceived = 0;
+    let lastTimestamp = Date.now();
+    let videoPlayAttempts = 0;
+    
+    // DOM elements
+    const video = document.getElementById('remoteVideo');
+    const videoOverlay = document.getElementById('videoOverlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const playButtonContainer = document.getElementById('playButtonContainer');
+    const playBtn = document.getElementById('playBtn');
+    const muteBtn = document.getElementById('muteBtn');
+    
+    // Logging system
+    class Logger {
+        constructor() {
+            this.levels = {
+                INFO: 'info',
+                WARN: 'warn', 
+                ERROR: 'error',
+                DEBUG: 'debug'
+            };
+            this.logs = [];
+            this.maxLogs = 1000;
+        }
         
-        // ✅ FIXED: Global variables
-        let ws, pc;
-        const video = document.getElementById('remoteVideo');
-        const videoOverlay = document.getElementById('videoOverlay');
-        const overlayText = document.getElementById('overlayText');
-        const playButtonContainer = document.getElementById('playButtonContainer');
-        
-        let remoteStream = null;
-        let statsInterval;
-        let lastBytesReceived = 0;
-        let lastTimestamp = Date.now();
-        let reconnectAttempts = 0;
-        const MAX_RECONNECT_ATTEMPTS = 10;
-        const RECONNECT_DELAY = 3000;
-        let isUserInteracted = false;
-
-        function log(message, type = 'info') {
-            console.log(`[${type.toUpperCase()}]`, message);
+        log(message, level = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = { timestamp, message, level };
             
+            // Console log
+            const consoleMethod = level === 'error' ? 'error' : 
+                               level === 'warn' ? 'warn' : 'log';
+            console[consoleMethod](`[${level.toUpperCase()}]`, message);
+            
+            // Store log
+            this.logs.push(logEntry);
+            if (this.logs.length > this.maxLogs) {
+                this.logs.shift();
+            }
+            
+            // Update UI
+            this.updateUI(logEntry);
+            
+            return logEntry;
+        }
+        
+        updateUI(logEntry) {
             const logsContent = document.getElementById('logsContent');
             const entry = document.createElement('div');
-            entry.className = `log-entry log-${type}`;
-            
-            const time = new Date().toLocaleTimeString();
-            entry.innerHTML = `<span class="log-time">[${time}]</span><span>${message}</span>`;
-	                entry.innerHTML = `<span class="log-time">[${time}]</span><span>${message}</span>`;
+            entry.className = `log-entry log-${logEntry.level}`;
+            entry.innerHTML = `
+                <span class="log-time">[${logEntry.timestamp}]</span>
+                <span class="log-message">${logEntry.message}</span>
+            `;
             
             logsContent.appendChild(entry);
-            logsContent.scrollTop = logsContent.scrollHeight;
+            
+            if (isAutoScroll) {
+                logsContent.scrollTop = logsContent.scrollHeight;
+            }
         }
-
-        function clearLogs() {
+        
+        clear() {
+            this.logs = [];
             document.getElementById('logsContent').innerHTML = '';
-            log('Logs cleared', 'info');
+            this.log('Logs cleared', 'info');
         }
-
-        function updateStatus(element, dot, text, state) {
-            const badge = document.getElementById(element);
-            const dotEl = document.getElementById(dot);
-            const textEl = document.getElementById(text);
-
-            badge.className = 'status-badge';
-            dotEl.className = 'status-dot';
-
+        
+        export() {
+            const content = this.logs.map(log => 
+                `[${log.timestamp}] [${log.level.toUpperCase()}] ${log.message}`
+            ).join('\n');
+            
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `zeta-logs-${new Date().toISOString().slice(0,19)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            this.log('Logs exported', 'info');
+        }
+    }
+    
+    const logger = new Logger();
+    
+    // Utility functions
+    function updateStatus(cardId, indicatorId, textId, state) {
+        const card = document.getElementById(cardId);
+        const indicator = document.getElementById(indicatorId);
+        const text = document.getElementById(textId);
+        
+        // Reset classes
+        card.className = 'status-card';
+        indicator.className = 'status-indicator';
+        
+        switch(state) {
+            case 'connected':
+                card.classList.add('connected');
+                indicator.classList.add('active');
+                break;
+            case 'streaming':
+                card.classList.add('streaming');
+                indicator.classList.add('active');
+                break;
+            case 'error':
+                card.classList.add('error');
+                indicator.classList.add('error');
+                break;
+            case 'warning':
+                card.classList.add('warning');
+                indicator.classList.add('warning');
+                break;
+        }
+    }
+    
+    function updateStat(elementId, value, subtext = null) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = value;
+            if (subtext && document.getElementById(`${elementId}Sub`)) {
+                document.getElementById(`${elementId}Sub`).textContent = subtext;
+            }
+        }
+    }
+    
+    function showOverlay(title, message, showPlayButton = false) {
+        overlayTitle.textContent = title;
+        overlayText.textContent = message;
+        videoOverlay.classList.remove('hidden');
+        playButtonContainer.style.display = showPlayButton ? 'block' : 'none';
+        document.querySelector('.spinner').style.display = showPlayButton ? 'none' : 'block';
+    }
+    
+    function hideOverlay() {
+        videoOverlay.classList.add('hidden');
+    }
+    
+    function toggleMute() {
+        video.muted = !video.muted;
+        muteBtn.innerHTML = video.muted ? 
+            '<span>🔇</span> Unmute' : 
+            '<span>🔊</span> Mute';
+        logger.log(`Audio ${video.muted ? 'muted' : 'unmuted'}`, 'info');
+    }
+    
+    function refreshConnection() {
+        logger.log('Manual reconnect requested', 'info');
+        reconnectAttempts = 0;
+        disconnectAndReconnect();
+    }
+    
+    function copyStreamURL() {
+        const url = window.location.href;
+        navigator.clipboard.writeText(url).then(() => {
+            logger.log('Stream URL copied to clipboard', 'info');
+        }).catch(err => {
+            logger.log(`Failed to copy URL: ${err.message}`, 'error');
+        });
+    }
+    
+    function clearLogs() {
+        logger.clear();
+    }
+    
+    function toggleAutoScroll() {
+        isAutoScroll = !isAutoScroll;
+        document.getElementById('autoScrollBtn').textContent = 
+            `Auto-scroll: ${isAutoScroll ? 'On' : 'Off'}`;
+        logger.log(`Auto-scroll ${isAutoScroll ? 'enabled' : 'disabled'}`, 'info');
+    }
+    
+    function exportLogs() {
+        logger.export();
+    }
+    
+    // WebSocket connection management
+    function connectWebSocket() {
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            logger.log('Maximum reconnection attempts reached. Please refresh page.', 'error');
+            showOverlay('Connection Failed', 
+                'Unable to establish connection after multiple attempts. Please refresh the page.',
+                true);
+            return;
+        }
+        
+        logger.log(`Connecting to signaling server (Attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
+        updateStatus('wsStatus', 'wsDot', 'wsText', 'warning');
+        updateStat('wsText', 'Connecting...');
+        
+        try {
+            ws = new WebSocket(WS_URL);
+            setupWebSocketHandlers();
+        } catch (error) {
+            logger.log(`WebSocket creation failed: ${error.message}`, 'error');
+            scheduleReconnect();
+        }
+    }
+    
+    function setupWebSocketHandlers() {
+        ws.onopen = () => {
+            connectionStartTime = Date.now();
+            reconnectAttempts = 0;
+            
+            logger.log('Connected to signaling server', 'info');
+            updateStatus('wsStatus', 'wsDot', 'wsText', 'connected');
+            updateStat('wsText', 'Connected');
+            
+            // Send identification
+            ws.send(JSON.stringify({
+                type: 'client-type',
+                client: 'browser',
+                timestamp: Date.now(),
+                userAgent: navigator.userAgent
+            }));
+            
+            // Initialize WebRTC
+            initPeerConnection();
+        };
+        
+        ws.onmessage = async (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                await handleSignaling(message);
+            } catch (error) {
+                logger.log(`Failed to parse message: ${error.message}`, 'error');
+            }
+        };
+        
+        ws.onclose = (event) => {
+            const duration = connectionStartTime ? 
+                Math.round((Date.now() - connectionStartTime) / 1000) : 0;
+            
+            logger.log(`Disconnected from server (code: ${event.code}, reason: ${event.reason || 'No reason'}) [Duration: ${duration}s]`, 'warn');
+            updateStatus('wsStatus', 'wsDot', 'wsText', 'error');
+            updateStat('wsText', 'Disconnected');
+            
+            // Clean up WebRTC
+            cleanupWebRTC();
+            
+            // Schedule reconnect if not intentional
+            if (event.code !== 1000) { // 1000 = normal closure
+                scheduleReconnect();
+            }
+        };
+        
+        ws.onerror = (error) => {
+            logger.log(`WebSocket error: ${error.message || 'Unknown error'}`, 'error');
+        };
+    }
+    
+    function scheduleReconnect() {
+        // Exponential backoff with jitter
+        const baseDelay = RECONNECT_BASE_DELAY;
+        const maxDelay = 30000; // 30 seconds max
+        const delay = Math.min(
+            baseDelay * Math.pow(1.5, reconnectAttempts) + Math.random() * 1000,
+            maxDelay
+        );
+        
+        reconnectAttempts++;
+        
+        logger.log(`Reconnecting in ${Math.round(delay/1000)}s... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
+        
+        setTimeout(() => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connectWebSocket();
+            }
+        }, delay);
+    }
+    
+    function disconnectAndReconnect() {
+        logger.log('Disconnecting for reconnect...', 'info');
+        
+        if (ws) {
+            ws.close(1000, 'Reconnecting');
+        }
+        
+        cleanupWebRTC();
+        
+        setTimeout(() => {
+            connectWebSocket();
+        }, 1000);
+    }
+    
+    // WebRTC management
+    function initPeerConnection() {
+        logger.log('Initializing WebRTC peer connection...', 'info');
+        
+        // Clean up existing connection
+        cleanupWebRTC();
+        
+        const config = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                // Add TURN servers for better connectivity
+                {
+                    urls: [
+                        'turn:openrelay.metered.ca:80',
+                        'turn:openrelay.metered.ca:443',
+                        'turn:openrelay.metered.ca:443?transport=tcp'
+                    ],
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceTransportPolicy: 'all',
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+            sdpSemantics: 'unified-plan',
+            iceCandidatePoolSize: 10 // Increase candidate pool
+        };
+        
+        try {
+            pc = new RTCPeerConnection(config);
+            setupPeerConnectionHandlers();
+            
+            logger.log('WebRTC peer connection initialized', 'info');
+        } catch (error) {
+            logger.log(`Failed to create peer connection: ${error.message}`, 'error');
+            showOverlay('WebRTC Error', 'Failed to initialize video streaming. Please refresh.', true);
+        }
+    }
+    
+    function setupPeerConnectionHandlers() {
+        // Create global media stream
+        remoteStream = new MediaStream();
+        video.srcObject = remoteStream;
+        
+        // Track event handler
+        pc.ontrack = (event) => {
+            const track = event.track;
+            const kind = track.kind;
+            
+            logger.log(`Received ${kind} track (ID: ${track.id})`, 'info');
+            
+            // Check if track already exists
+            const existingTrack = remoteStream.getTracks().find(t => t.id === track.id);
+            
+            if (!existingTrack) {
+                remoteStream.addTrack(track);
+                logger.log(`Added ${kind} track to stream. Total tracks: ${remoteStream.getTracks().length}`, 'info');
+                
+                // Debug tracks setelah ditambahkan
+                setTimeout(() => {
+                    window.debugVideoTracks();
+                }, 1000);
+                
+                if (kind === 'video') {
+                    updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'connected');
+                    updateStat('cameraText', 'Active');
+                    
+                    // Setup video event listeners
+                    setupVideoEvents();
+                    
+                    // Try to play after delay
+                    setTimeout(() => {
+                        attemptPlay();
+                    }, 500);
+                }
+            }
+        };
+        
+        // ICE candidate handler
+        pc.onicecandidate = (event) => {
+            if (event.candidate && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'ice-candidate',
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex,
+                    candidate: event.candidate.candidate
+                }));
+            }
+        };
+        
+        // ICE connection state
+        pc.oniceconnectionstatechange = () => {
+            const state = pc.iceConnectionState;
+            updateStat('statIce', state);
+            
+            logger.log(`ICE connection state: ${state}`, 'info');
+            
             switch(state) {
                 case 'connected':
-                    badge.classList.add('connected');
-                    dotEl.classList.add('active');
+                case 'completed':
+                    logger.log('P2P connection established!', 'info');
+                    updateStatus('androidStatus', 'androidDot', 'androidText', 'connected');
+                    updateStat('androidText', 'Connected');
                     break;
-                case 'streaming':
-                    badge.classList.add('streaming');
-                    dotEl.classList.add('active');
+                    
+                case 'disconnected':
+                    logger.log('P2P connection unstable', 'warn');
+                    updateStatus('androidStatus', 'androidDot', 'androidText', 'warning');
+                    updateStat('androidText', 'Unstable');
                     break;
-                case 'error':
-                    badge.classList.add('error');
-                    dotEl.classList.add('error');
-                    break;
-                case 'warning':
-                    dotEl.classList.add('warning');
+                    
+                case 'failed':
+                    logger.log('P2P connection failed', 'error');
+                    updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
+                    updateStat('androidText', 'Failed');
+                    showOverlay('Connection Lost', 'Attempting to reconnect...', false);
                     break;
             }
-        }
-
-        // ✅ FIXED: Enhanced connection management
-        function connectWebSocket() {
-            log(`🔌 Connecting to signaling server... (Attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
+        };
+        
+        // Connection state
+        pc.onconnectionstatechange = () => {
+            const state = pc.connectionState;
+            updateStat('statConnection', state);
             
-            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                log('❌ Max reconnection attempts reached. Please refresh page.', 'error');
-                overlayText.innerHTML = `
-                    <div style="text-align: center;">
-                        <div style="color: #f44336; font-size: 24px; margin-bottom: 10px;">⚠️</div>
-                        <p>Connection failed after ${MAX_RECONNECT_ATTEMPTS} attempts</p>
-                        <button onclick="window.location.reload()" 
-                                style="padding: 10px 20px; background: #2196F3; border: none; border-radius: 5px; color: white; cursor: pointer; margin-top: 10px;">
-                            🔄 Refresh Page
-                        </button>
-                    </div>
-                `;
-                document.querySelector('.spinner').style.display = 'none';
-                return;
+            logger.log(`Connection state: ${state}`, 'info');
+            
+            if (state === 'connected') {
+                startStatsMonitor();
+            } else if (state === 'disconnected' || state === 'failed') {
+                stopStatsMonitor();
             }
-
-            ws = new WebSocket(WS_URL);
-
-            ws.onopen = () => {
-                log('✅ Connected to signaling server', 'info');
-                document.getElementById('wsText').textContent = 'Connected';
-                updateStatus('wsStatus', 'wsDot', 'wsText', 'connected');
-                reconnectAttempts = 0; // Reset counter on successful connection
-
-                ws.send(JSON.stringify({
-                    type: 'client-type',
-                    client: 'browser',
-                    timestamp: Date.now()
-                }));
-
-                initPeerConnection();
-            };
-
-            ws.onmessage = async (event) => {
-                try {
-                    const message = JSON.parse(event.data);
-                    await handleSignaling(message);
-                } catch (error) {
-                    log(`❌ Parse error: ${error.message}`, 'error');
-                }
-            };
-
-            ws.onclose = (event) => {
-                log(`🔌 Disconnected from server (code: ${event.code}, reason: ${event.reason})`, 'warn');
-                document.getElementById('wsText').textContent = 'Disconnected';
-                updateStatus('wsStatus', 'wsDot', 'wsText', 'error');
-                
-                // Exponential backoff with jitter
-                const delay = RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts) + Math.random() * 1000;
-                reconnectAttempts++;
-                
-                log(`⏳ Reconnecting in ${Math.round(delay/1000)}s... (Attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
-                
-                setTimeout(connectWebSocket, Math.min(delay, 30000)); // Max 30 seconds
-            };
-
-            ws.onerror = (error) => {
-                log(`❌ WebSocket error: ${error.message || 'Unknown error'}`, 'error');
-            };
-        }
-
-        // ✅ FIXED: Enhanced peer connection with better track handling
-        function initPeerConnection() {
-            log('🔄 Initializing WebRTC peer connection...', 'info');
+        };
+        
+        // Signaling state
+        pc.onsignalingstatechange = () => {
+            logger.log(`Signaling state: ${pc.signalingState}`, 'debug');
+        };
+    }
+    
+    function setupVideoEvents() {
+        video.onloadedmetadata = () => {
+            const width = video.videoWidth;
+            const height = video.videoHeight;
             
-            const config = {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' }
-                ],
-                iceTransportPolicy: 'all',
-                bundlePolicy: 'max-bundle',
-                rtcpMuxPolicy: 'require'
-            };
-
-            pc = new RTCPeerConnection(config);
-
-            // ✅ FIXED: Create global stream for all tracks
-            remoteStream = new MediaStream();
-            video.srcObject = remoteStream;
-            log('✅ Created global MediaStream for all tracks', 'info');
-
-            pc.ontrack = (event) => {
-                const track = event.track;
-                const stream = event.streams[0];
-                
-                log(`🎥 Received ${track.kind} track. ID: ${track.id}, Stream ID: ${stream ? stream.id : 'none'}`, 'info');
-                
-                // Check if track already exists
-                const existingTrack = remoteStream.getTracks().find(t => t.id === track.id);
-                
-                if (!existingTrack) {
-                    remoteStream.addTrack(track);
-                    log(`✅ Added ${track.kind} track to global stream. Total tracks: ${remoteStream.getTracks().length}`, 'info');
-                    
-                    if (track.kind === 'video') {
-                        document.getElementById('cameraText').textContent = 'Camera: Active';
-                        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'connected');
-                        log('📹 Video track added successfully', 'info');
-                        
-                        // Setup video events
-                        setupVideoEvents();
-                        
-                        // Try to play after a short delay
-                        setTimeout(() => {
-                            attemptPlay();
-                        }, 500);
-                    }
-                    
-                    if (track.kind === 'audio') {
-                        log('🎤 Audio track added successfully', 'info');
-                    }
-                } else {
-                    log(`⚠️ ${track.kind} track already exists, skipping`, 'warn');
-                }
-            };
-
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    ws.send(JSON.stringify({
-                        type: 'ice-candidate',
-                        sdpMid: event.candidate.sdpMid,
-                        sdpMLineIndex: event.candidate.sdpMLineIndex,
-                        candidate: event.candidate.candidate
-                    }));
-                    log('➕ Sent ICE candidate', 'info');
-                }
-            };
-
-            pc.oniceconnectionstatechange = () => {
-                const state = pc.iceConnectionState;
-                log(`❄️ ICE State: ${state}`, 'info');
-                document.getElementById('statIce').textContent = state;
-
-                if (state === 'connected' || state === 'completed') {
-                    log('✅ P2P Connection established!', 'info');
-                    if (!isUserInteracted) {
-                        setTimeout(attemptPlay, 1000);
-                    }
-                } else if (state === 'disconnected') {
-                    log('⚠️ Connection lost', 'warn');
-                    videoOverlay.classList.remove('hidden');
-                    overlayText.textContent = 'Connection lost...';
-                    document.querySelector('.spinner').style.display = 'block';
-                    playButtonContainer.style.display = 'none';
-                } else if (state === 'failed') {
-                    log('❌ Connection failed', 'error');
-                    videoOverlay.classList.remove('hidden');
-                    overlayText.textContent = 'Connection failed';
-                    document.querySelector('.spinner').style.display = 'block';
-                    playButtonContainer.style.display = 'none';
-                    
-                    // Try to restart connection
-                    setTimeout(() => {
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            log('🔄 Requesting new offer due to ICE failure', 'info');
-                            ws.send(JSON.stringify({
-                                type: 'request-offer',
-                                reason: 'ice-failed',
-                                timestamp: Date.now()
-                            }));
-                        }
-                    }, 2000);
-                }
-            };
-
-            pc.onconnectionstatechange = () => {
-                const state = pc.connectionState;
-                document.getElementById('statConnection').textContent = state;
-                log(`📡 Connection State: ${state}`, 'info');
-                
-                if (state === 'connected') {
-                    startStatsMonitor();
-                } else if (state === 'disconnected' || state === 'failed') {
-                    stopStatsMonitor();
-                }
-            };
-
-            pc.onsignalingstatechange = () => {
-                log(`📶 Signaling State: ${pc.signalingState}`, 'info');
-            };
-
-            log('✅ PeerConnection initialized with enhanced track handling', 'info');
-        }
-
-        function setupVideoEvents() {
-            video.onloadedmetadata = () => {
-                log(`📹 Video metadata loaded. ReadyState: ${video.readyState}, Dimensions: ${video.videoWidth}x${video.videoHeight}`, 'info');
-            };
+            if (width && height) {
+                updateStat('statResolution', `${width}×${height}`);
+                logger.log(`Video metadata loaded: ${width}×${height}`, 'info');
+            }
+        };
+        
+        video.oncanplay = () => {
+            logger.log('Video ready to play', 'info');
             
-            video.oncanplay = () => {
-                log('🎬 Video can play now', 'info');
-                if (!video.paused) {
-                    log('✅ Video is already playing', 'info');
-                } else if (isUserInteracted) {
+            if (!isUserInteracted) {
+                showOverlay('Stream Ready', 'Click the "Start Streaming" button below to begin playback', true);
+            } else {
+                attemptPlay();
+            }
+        };
+        
+        video.onplaying = () => {
+            logger.log('🎬 Video playback started!', 'info');
+            hideOverlay();
+            updateStatus('streamStatus', 'streamDot', 'streamText', 'streaming');
+            updateStat('streamText', 'Streaming');
+            
+            // Enable controls
+            playBtn.disabled = true;
+            playBtn.innerHTML = '<span>▶️</span> Playing';
+        };
+        
+        video.onpause = () => {
+            logger.log('Video paused', 'info');
+            updateStatus('streamStatus', 'streamDot', 'streamText', 'warning');
+            updateStat('streamText', 'Paused');
+            
+            // Enable play button
+            playBtn.disabled = false;
+            playBtn.innerHTML = '<span>▶️</span> Resume';
+        };
+        
+        video.onended = () => {
+            logger.log('Video ended', 'warn');
+            updateStatus('streamStatus', 'streamDot', 'streamText', 'error');
+            updateStat('streamText', 'Ended');
+            showOverlay('Stream Ended', 'Video stream has ended', true);
+        };
+        
+        video.onerror = (e) => {
+            const errorCode = video.error ? video.error.code : 'unknown';
+            logger.log(`Video error: ${errorCode}`, 'error');
+            showOverlay('Video Error', 'Failed to play video stream', true);
+        };
+        
+        video.onstalled = () => {
+            logger.log('Video stalled - buffering', 'warn');
+        };
+        
+        video.onwaiting = () => {
+            logger.log('Video waiting for data', 'info');
+        };
+        
+        // User interaction handler for autoplay
+        document.addEventListener('click', () => {
+            if (!isUserInteracted) {
+                isUserInteracted = true;
+                logger.log('User interaction detected, enabling playback', 'info');
+                
+                if (video.paused && video.readyState >= 3) {
                     attemptPlay();
                 }
-            };
-            
-            video.onplaying = () => {
-                log('▶️ Video playing event fired', 'info');
-                videoOverlay.classList.add('hidden');
-                document.getElementById('streamText').textContent = 'Streaming';
-                updateStatus('streamStatus', 'streamDot', 'streamText', 'streaming');
-            };
-            
-            video.onpause = () => {
-                log('⏸️ Video paused', 'info');
-            };
-            
-            video.onerror = (e) => {
-                log(`❌ Video error: ${video.error ? video.error.code : 'unknown'}`, 'error');
-            };
-            
-            // User interaction handler
-            document.addEventListener('click', () => {
-                isUserInteracted = true;
-            }, { once: true });
-        }
-
-        async function handleSignaling(message) {
-            const { type } = message;
-
-            switch (type) {
-                case 'android-connected':
-                    log('📱 Android device connected', 'info');
-                    document.getElementById('androidText').textContent = 'Android Connected';
-                    updateStatus('androidStatus', 'androidDot', 'androidText', 'connected');
-                    overlayText.textContent = 'Waiting for stream...';
-                    document.querySelector('.spinner').style.display = 'block';
-                    playButtonContainer.style.display = 'none';
-                    break;
-
-                case 'android-disconnected':
-                    log('📱 Android device disconnected', 'warn');
-                    document.getElementById('androidText').textContent = 'Android Offline';
-                    updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
-                    document.getElementById('streamText').textContent = 'No Stream';
-                    document.getElementById('cameraText').textContent = 'Camera: Off';
-                    videoOverlay.classList.remove('hidden');
-                    overlayText.textContent = 'Android disconnected';
-                    document.querySelector('.spinner').style.display = 'block';
-                    playButtonContainer.style.display = 'none';
-                    stopStatsMonitor();
+            }
+        }, { once: false });
+    }
+    
+    async function handleSignaling(message) {
+        const { type } = message;
+        
+        switch(type) {
+            case 'android-connected':
+                logger.log('Android device connected', 'info');
+                updateStatus('androidStatus', 'androidDot', 'androidText', 'connected');
+                updateStat('androidText', 'Connected');
+                showOverlay('Android Connected', 'Waiting for video stream...', false);
+                break;
+                
+            case 'android-disconnected':
+                logger.log(`Android disconnected: ${message.reason || 'Unknown reason'}`, 'warn');
+                updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
+                updateStat('androidText', 'Disconnected');
+                showOverlay('Android Disconnected', 'Device disconnected. Reconnecting...', false);
+                break;
+                
+            case 'camera-status':
+                logger.log(`Camera status: ${message.status}`, 'info');
+                if (message.status === 'streaming') {
+                    updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'streaming');
+                    updateStat('cameraText', 'Streaming');
+                } else if (message.status === 'opening') {
+                    updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'warning');
+                    updateStat('cameraText', 'Opening...');
+                }
+                break;
+                
+            case 'camera-error':
+                logger.log(`Camera error: ${message.message}`, 'error');
+                updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'error');
+                updateStat('cameraText', 'Error');
+                showOverlay('Camera Error', message.message, true);
+                break;
+                
+            case 'offer':
+                logger.log('Received SDP offer', 'info');
+                
+                try {
+                    await pc.setRemoteDescription({
+                        type: 'offer',
+                        sdp: message.sdp
+                    });
                     
-                    // Clean up stream
-                    if (remoteStream) {
-                        remoteStream.getTracks().forEach(track => track.stop());
-                    }
-                    video.srcObject = null;
-                    break;
-
-                case 'camera-status':
-                    log(`📸 Camera status: ${message.status}${message.camera ? ' (' + message.camera + ')' : ''}`, 'info');
-                    if (message.status === 'streaming') {
-                        document.getElementById('cameraText').textContent = 'Camera: Streaming';
-                        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'connected');
-                    } else if (message.status === 'opening') {
-                        document.getElementById('cameraText').textContent = `Camera: Opening${message.camera ? ' (' + message.camera + ')' : ''}`;
-                        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'warning');
-                    }
-                    break;
-
-                case 'camera-error':
-                    log(`❌ Camera error: ${message.message}`, 'error');
-                    document.getElementById('cameraText').textContent = 'Camera: Error';
-                    updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'error');
-                    overlayText.innerHTML = `
-                        <div style="color: #f44336;">❌ Camera Error</div>
-                        <p style="font-size: 14px; margin-top: 5px;">${message.message}</p>
-                    `;
-                    break;
-
-                case 'offer':
-                    log('📨 Received SDP Offer', 'info');
-                    overlayText.textContent = 'Processing offer...';
-                    document.querySelector('.spinner').style.display = 'block';
-
-                    try {
-                        await pc.setRemoteDescription({
-                            type: 'offer',
-                            sdp: message.sdp
-                        });
-
-                        const answer = await pc.createAnswer({
-                            offerToReceiveAudio: true,
-                            offerToReceiveVideo: true
-                        });
-                        
-                        await pc.setLocalDescription(answer);
-
+                    const answer = await pc.createAnswer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
+                    
+                    await pc.setLocalDescription(answer);
+                    
+                    if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({
                             type: 'answer',
                             sdp: answer.sdp,
                             timestamp: Date.now()
                         }));
-
-                        log('📤 Sent SDP Answer', 'info');
-                    } catch (error) {
-                        log(`❌ Failed to handle offer: ${error.message}`, 'error');
-                    }
-                    break;
-
-                case 'ice-candidate':
-                    log('➕ Received ICE candidate', 'info');
-
-                    try {
-                        await pc.addIceCandidate({
-                            sdpMid: message.sdpMid,
-                            sdpMLineIndex: message.sdpMLineIndex,
-                            candidate: message.candidate
-                        });
-                    } catch (error) {
-                        log(`❌ Failed to add ICE candidate: ${error.message}`, 'error');
-                    }
-                    break;
-                    
-                case 'ping':
-                    ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-                    break;
-                    
-                case 'error':
-                    log(`❌ Server error: ${message.message}`, 'error');
-                    break;
-                    
-                case 'android-status':
-                    if (message.status === 'disconnected') {
-                        log('📱 Android status: disconnected', 'warn');
-                        document.getElementById('androidText').textContent = 'Android Offline';
-                        updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
-                    }
-                    break;
-            }
-        }
-
-        function attemptPlay() {
-            if (!video.srcObject || remoteStream.getVideoTracks().length === 0) {
-                log('⚠️ No video source available yet', 'warn');
-                setTimeout(attemptPlay, 500);
-                return;
-            }
-
-            log('⏯️ Attempting to play video...', 'info');
-            debugVideoState();
-
-            // Ensure video is muted for autoplay
-            video.muted = true;
-            video.volume = 0;
-
-            const playPromise = video.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    log('✅ Video playback started successfully!', 'info');
-                    videoOverlay.classList.add('hidden');
-                    document.getElementById('streamText').textContent = 'Streaming';
-                    updateStatus('streamStatus', 'streamDot', 'streamText', 'streaming');
-                    startStatsMonitor();
-                    
-                    // Verify playback after 1 second
-                    setTimeout(() => {
-                        if (video.paused) {
-                            log('⚠️ Video paused after successful play()', 'warn');
-                            showPlayButton();
-                        } else {
-                            log('✅ Video confirmed playing', 'info');
-                        }
-                    }, 1000);
-                }).catch(error => {
-                    log(`❌ Autoplay failed: ${error.name} - ${error.message}`, 'error');
-                    debugVideoState();
-                    showPlayButton();
-                });
-            }
-        }
-
-        function showPlayButton() {
-            videoOverlay.classList.remove('hidden');
-            document.querySelector('.spinner').style.display = 'none';
-            playButtonContainer.style.display = 'block';
-            overlayText.innerHTML = `
-                <p>Stream ready! Click play to start.</p>
-            `;
-        }
-
-        window.forcePlay = function() {
-            log('👆 User clicked play button', 'info');
-            isUserInteracted = true;
-            
-            video.muted = true;
-            video.play().then(() => {
-                log('▶️ Video playing after user interaction', 'info');
-                videoOverlay.classList.add('hidden');
-                document.getElementById('streamText').textContent = 'Streaming';
-                updateStatus('streamStatus', 'streamDot', 'streamText', 'streaming');
-                startStatsMonitor();
-            }).catch(e => {
-                log(`❌ Play failed even after user click: ${e.message}`, 'error');
-                overlayText.innerHTML = `
-                    <div style="color: #f44336;">❌ Playback Error</div>
-                    <p>Please check browser permissions and try again.</p>
-                    <button onclick="forcePlay()" 
-                            style="padding: 10px 20px; background: #4CAF50; border: none; border-radius: 5px; color: white; cursor: pointer; margin-top: 10px;">
-                        🔄 Try Again
-                    </button>
-                `;
-            });
-        };
-
-        function startStatsMonitor() {
-            // Reset tracking variables
-            lastBytesReceived = 0;
-            lastTimestamp = Date.now();
-            
-            // Clear existing interval
-            stopStatsMonitor();
-            
-            statsInterval = setInterval(async () => {
-                if (!pc || pc.connectionState !== 'connected') return;
-
-                try {
-                    const stats = await pc.getStats();
-                    let currentBytesReceived = 0;
-                    let width = 0;
-                    let height = 0;
-                    let fps = 0;
-
-                    stats.forEach(report => {
-                        if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                            currentBytesReceived = report.bytesReceived || 0;
-                            width = report.frameWidth || 0;
-                            height = report.frameHeight || 0;
-                            fps = report.framesPerSecond || 0;
-                        }
-                    });
-
-                    // Calculate bitrate properly (bytes per second)
-                    const now = Date.now();
-                    const timeDiff = (now - lastTimestamp) / 1000; // seconds
-                    
-                    if (lastBytesReceived > 0 && timeDiff > 0) {
-                        const bytesDiff = currentBytesReceived - lastBytesReceived;
-                        const bitrate = Math.round((bytesDiff * 8) / timeDiff / 1000); // kbps
                         
-                        if (bitrate > 0) {
-                            document.getElementById('statBitrate').textContent = `${bitrate} kbps`;
-                        }
-                    }
-                    
-                    lastBytesReceived = currentBytesReceived;
-                    lastTimestamp = now;
-
-                    if (width > 0 && height > 0) {
-                        document.getElementById('statResolution').textContent = `${width}x${height}${fps > 0 ? ` @${fps}fps` : ''}`;
+                        logger.log('Sent SDP answer', 'info');
                     }
                 } catch (error) {
-                    // Silently fail for stats errors
+                    logger.log(`Failed to handle offer: ${error.message}`, 'error');
                 }
-            }, 1000);
-        }
-
-        function stopStatsMonitor() {
-            if (statsInterval) {
-                clearInterval(statsInterval);
-                statsInterval = null;
-            }
-            lastBytesReceived = 0;
-            lastTimestamp = Date.now();
-        }
-
-        function debugVideoState() {
-            log('🔍 VIDEO DEBUG:', 'info');
-            log(`  - readyState: ${video.readyState} (${getReadyStateString(video.readyState)})`, 'info');
-            log(`  - paused: ${video.paused}`, 'info');
-            log(`  - muted: ${video.muted}`, 'info');
-            log(`  - srcObject: ${video.srcObject ? 'SET ✓' : 'NULL ✗'}`, 'info');
-            
-            if (video.srcObject) {
-                const streams = video.srcObject;
-                log(`  - Stream ID: ${streams.id || 'N/A'}`, 'info');
-                const tracks = streams.getTracks();
-                log(`  - Total tracks: ${tracks.length}`, 'info');
+                break;
                 
-                tracks.forEach((track, i) => {
-                    log(`    Track ${i}: ${track.kind} | ID: ${track.id} | ${track.enabled ? 'enabled' : 'disabled'} | ${track.readyState} | muted: ${track.muted}`, 'info');
+            case 'ice-candidate':
+                try {
+                    await pc.addIceCandidate({
+                        sdpMid: message.sdpMid,
+                        sdpMLineIndex: message.sdpMLineIndex,
+                        candidate: message.candidate
+                    });
+                } catch (error) {
+                    // Often safe to ignore
+                }
+                break;
+                
+            case 'error':
+                logger.log(`Server error: ${message.message}`, 'error');
+                break;
+                
+            case 'android-status':
+                if (message.status === 'disconnected') {
+                    logger.log('Android status: disconnected', 'warn');
+                    updateStatus('androidStatus', 'androidDot', 'androidText', 'error');
+                    updateStat('androidText', 'Offline');
+                }
+                break;
+        }
+    }
+    
+    function attemptPlay() {
+        if (!video.paused) {
+            logger.log('Video already playing', 'info');
+            return;
+        }
+        
+        // Cek apakah video element siap
+        if (video.readyState < 2) { // 0=HAVE_NOTHING, 1=HAVE_METADATA, 2=HAVE_CURRENT_DATA
+            logger.log(`Video not ready (state: ${video.readyState}), retrying...`, 'warn');
+            setTimeout(attemptPlay, 500);
+            return;
+        }
+        
+        // Pastikan ada video track
+        const videoTracks = remoteStream ? remoteStream.getVideoTracks() : [];
+        if (videoTracks.length === 0) {
+            logger.log('No video tracks available', 'warn');
+            showOverlay('Waiting for Video', 'No video stream detected', false);
+            return;
+        }
+        
+        logger.log(`Attempting to play video. Tracks: ${videoTracks.length}, State: ${video.readyState}`, 'info');
+        
+        // Strategy: Play dengan muted dulu
+        video.muted = true;
+        video.playsInline = true;
+        
+        const playPromise = video.play();
+        
+        if (playPromise !== undefined) {
+            playPromise
+                .then(() => {
+                    logger.log('🎬 Video playback started successfully!', 'info');
+                    hideOverlay();
+                    
+                    // Setelah 1 detik, coba unmute
+                    setTimeout(() => {
+                        if (video.muted) {
+                            video.muted = false;
+                            logger.log('Audio unmuted', 'info');
+                        }
+                    }, 1000);
+                })
+                .catch(error => {
+                    logger.log(`Autoplay blocked: ${error.name} - ${error.message}`, 'warn');
+                    
+                    // Show manual button
+                    showOverlay('Playback Blocked', 
+                        'Browser requires user interaction. Click the button below.', 
+                        true);
                 });
+        }
+    }
+    
+    window.forcePlay = function() {
+        logger.log('🚀 Manual play requested', 'info');
+        isUserInteracted = true;
+        
+        // Cek status video track
+        const videoTracks = remoteStream ? remoteStream.getVideoTracks() : [];
+        const audioTracks = remoteStream ? remoteStream.getAudioTracks() : [];
+        
+        logger.log(`Tracks - Video: ${videoTracks.length}, Audio: ${audioTracks.length}`, 'info');
+        
+        if (videoTracks.length > 0) {
+            const track = videoTracks[0];
+            logger.log(`Video Track: ${track.id} - ${track.kind} - ${track.readyState} - ${track.enabled}`, 'info');
+        }
+        
+        // Coba play dengan berbagai strategi
+        const playStrategies = [
+            { muted: true, description: 'Muted autoplay' },
+            { muted: false, description: 'Unmuted autoplay' }
+        ];
+        
+        let attempt = 0;
+        
+        function tryPlay(strategyIndex) {
+            if (strategyIndex >= playStrategies.length) {
+                logger.log('All play strategies failed', 'error');
+                showOverlay('Playback Failed', 
+                    'Cannot play video. Try refreshing the page or check browser permissions.', 
+                    true);
+                return;
             }
             
-            function getReadyStateString(state) {
-                const states = ['HAVE_NOTHING', 'HAVE_METADATA', 'HAVE_CURRENT_DATA', 'HAVE_FUTURE_DATA', 'HAVE_ENOUGH_DATA'];
-                return states[state] || 'UNKNOWN';
-            }
+            const strategy = playStrategies[strategyIndex];
+            logger.log(`Trying strategy ${strategyIndex + 1}: ${strategy.description}`, 'info');
+            
+            video.muted = strategy.muted;
+            
+            video.play()
+                .then(() => {
+                    logger.log(`✅ ${strategy.description} successful!`, 'info');
+                    hideOverlay();
+                    
+                    // Jika muted berhasil, coba unmute setelah 2 detik
+                    if (strategy.muted) {
+                        setTimeout(() => {
+                            video.muted = false;
+                            logger.log('Audio unmuted after successful play', 'info');
+                        }, 2000);
+                    }
+                })
+                .catch(error => {
+                    logger.log(`❌ ${strategy.description} failed: ${error.name}`, 'warn');
+                    tryPlay(strategyIndex + 1);
+                });
         }
-
-        // Stream health monitoring
-        setInterval(() => {
-            if (remoteStream && remoteStream.getVideoTracks().length > 0) {
-                const videoTrack = remoteStream.getVideoTracks()[0];
-                if (videoTrack.readyState === 'ended') {
-                    log('⚠️ Video track ended, requesting new offer', 'warn');
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({
-                            type: 'request-offer',
-                            reason: 'track-ended',
-                            timestamp: Date.now()
-                        }));
+        
+        tryPlay(0);
+    };
+    
+    function startStatsMonitor() {
+        stopStatsMonitor();
+        
+        statsInterval = setInterval(async () => {
+            if (!pc || pc.connectionState !== 'connected') return;
+            
+            try {
+                const stats = await pc.getStats();
+                let videoBytes = 0;
+                let width = 0;
+                let height = 0;
+                let fps = 0;
+                
+                stats.forEach(report => {
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        videoBytes = report.bytesReceived || 0;
+                        width = report.frameWidth || 0;
+                        height = report.frameHeight || 0;
+                        fps = report.framesPerSecond || 0;
+                    }
+                });
+                
+                // Calculate bitrate
+                const now = Date.now();
+                const timeDiff = (now - lastTimestamp) / 1000;
+                
+                if (lastBytesReceived > 0 && timeDiff > 0.5) {
+                    const bytesDiff = videoBytes - lastBytesReceived;
+                    const bitrate = Math.round((bytesDiff * 8) / timeDiff / 1000);
+                    
+                    if (bitrate > 0 && bitrate < 10000) {
+                        updateStat('statBitrate', `${bitrate} kbps`);
                     }
                 }
+                
+                lastBytesReceived = videoBytes;
+                lastTimestamp = now;
+                
+                if (width > 0 && height > 0) {
+                    updateStat('statResolution', `${width}×${height}`);
+                }
+                
+            } catch (error) {
+                // Silent fail for stats errors
             }
-        }, 5000);
-
-        // Start connection
+        }, STATS_INTERVAL);
+    }
+    
+    function stopStatsMonitor() {
+        if (statsInterval) {
+            clearInterval(statsInterval);
+            statsInterval = null;
+        }
+        lastBytesReceived = 0;
+        lastTimestamp = Date.now();
+    }
+    
+    function cleanupWebRTC() {
+        // Stop stats
+        stopStatsMonitor();
+        
+        // Close peer connection
+        if (pc) {
+            pc.close();
+            pc = null;
+        }
+        
+        // Clear stream
+        if (remoteStream) {
+            remoteStream.getTracks().forEach(track => track.stop());
+            remoteStream = null;
+        }
+        
+        // Clear video
+        video.srcObject = null;
+        video.pause();
+        
+        // Reset UI
+        updateStatus('streamStatus', 'streamDot', 'streamText', 'error');
+        updateStat('streamText', 'No Stream');
+        updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'error');
+        updateStat('cameraText', 'Off');
+        
+        playBtn.disabled = false;
+        playBtn.innerHTML = '<span>▶️</span> Play Stream';
+        
+        videoPlayAttempts = 0;
+    }
+    
+    // Start connection when page loads
+    window.addEventListener('load', () => {
+        logger.log('Page loaded, starting connection...', 'info');
         connectWebSocket();
         
-        // Make debug function available globally
-        window.debugVideoState = debugVideoState;
-    </script>
+        // Handle page visibility
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                logger.log('Page hidden', 'info');
+            } else {
+                logger.log('Page visible, checking connection...', 'info');
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    connectWebSocket();
+                }
+            }
+        });
+        
+        // Handle beforeunload
+        window.addEventListener('beforeunload', () => {
+            if (ws) {
+                ws.close(1000, 'Page closed');
+            }
+            cleanupWebRTC();
+        });
+    });
+    
+    // Debug functions
+    window.debugVideoTracks = function() {
+        logger.log('=== VIDEO TRACK DEBUG ===', 'debug');
+        
+        if (!video.srcObject) {
+            logger.log('Video srcObject is NULL', 'error');
+            return;
+        }
+        
+        const stream = video.srcObject;
+        const tracks = stream.getTracks();
+        
+        logger.log(`Total tracks: ${tracks.length}`, 'debug');
+        
+        tracks.forEach((track, index) => {
+            logger.log(`Track ${index}:`, 'debug');
+            logger.log(`  Kind: ${track.kind}`, 'debug');
+            logger.log(`  ID: ${track.id}`, 'debug');
+            logger.log(`  Enabled: ${track.enabled}`, 'debug');
+            logger.log(`  ReadyState: ${track.readyState}`, 'debug');
+            logger.log(`  Muted: ${track.muted}`, 'debug');
+            
+            if (track.kind === 'video') {
+                const settings = track.getSettings ? track.getSettings() : {};
+                logger.log(`  Settings: ${JSON.stringify(settings)}`, 'debug');
+            }
+        });
+        
+        logger.log(`Video readyState: ${video.readyState}`, 'debug');
+        logger.log(`Video paused: ${video.paused}`, 'debug');
+        logger.log(`Video muted: ${video.muted}`, 'debug');
+        logger.log(`Video currentTime: ${video.currentTime}`, 'debug');
+        logger.log(`Video duration: ${video.duration}`, 'debug');
+        logger.log(`Video videoWidth: ${video.videoWidth}`, 'debug');
+        logger.log(`Video videoHeight: ${video.videoHeight}`, 'debug');
+        logger.log('=== END DEBUG ===', 'debug');
+    };
+    
+    window.debugStream = function() {
+        logger.log('=== STREAM DEBUG ===', 'debug');
+        logger.log(`Video readyState: ${video.readyState}`, 'debug');
+        logger.log(`Video paused: ${video.paused}`, 'debug');
+        logger.log(`Video muted: ${video.muted}`, 'debug');
+        logger.log(`Video srcObject: ${video.srcObject ? 'SET' : 'NULL'}`, 'debug');
+        
+        if (video.srcObject) {
+            const tracks = video.srcObject.getTracks();
+            logger.log(`Tracks: ${tracks.length}`, 'debug');
+            tracks.forEach((track, i) => {
+                logger.log(`  Track ${i}: ${track.kind} - ${track.readyState}`, 'debug');
+            });
+        }
+        
+        if (pc) {
+            logger.log(`ICE state: ${pc.iceConnectionState}`, 'debug');
+            logger.log(`Connection state: ${pc.connectionState}`, 'debug');
+            logger.log(`Signaling state: ${pc.signalingState}`, 'debug');
+        }
+        
+        logger.log(`WebSocket state: ${ws ? ws.readyState : 'NO WS'}`, 'debug');
+        logger.log(`User interacted: ${isUserInteracted}`, 'debug');
+        logger.log('=== END DEBUG ===', 'debug');
+    };
+    
+    window.restartStream = function() {
+        logger.log('Manual stream restart requested', 'info');
+        disconnectAndReconnect();
+    };
+    
+    // Video element troubleshooting
+    window.fixVideoElement = function() {
+        logger.log('Attempting to fix video element...', 'info');
+        
+        // Recreate video element
+        const videoContainer = video.parentElement;
+        const newVideo = document.createElement('video');
+        
+        // Copy all attributes
+        newVideo.id = 'remoteVideo';
+        newVideo.autoplay = true;
+        newVideo.playsInline = true;
+        newVideo.muted = true;
+        newVideo.controls = false;
+        newVideo.style.cssText = video.style.cssText;
+        
+        // Copy srcObject if exists
+        if (video.srcObject) {
+            newVideo.srcObject = video.srcObject;
+        }
+        
+        // Replace video element
+        videoContainer.replaceChild(newVideo, video);
+        
+        // Update global reference
+        video = newVideo;
+        
+        // Reattach event listeners
+        setupVideoEvents();
+        
+        logger.log('Video element recreated', 'info');
+        
+        // Try to play
+        setTimeout(() => {
+            attemptPlay();
+        }, 500);
+    };
+</script>
 </body>
 </html>
