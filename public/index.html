@@ -1416,64 +1416,119 @@
         }
       }
 
-      function attemptPlay() {
-        if (!video.paused) return;
-
-        // Cek apakah user sudah berinteraksi
-        if (!isUserInteracted) {
-          showOverlay(
-            "Action Required",
-            'Click the "Start Streaming" button below to begin',
-            true
-          );
-          return;
-        }
-
-        // Reset jika video sudah ready
-        if (video.readyState >= 3) {
-          video
-            .play()
+      
+    function attemptPlay() {
+    if (!video.paused) {
+        logger.log('Video already playing', 'info');
+        return;
+    }
+    
+    // Cek apakah video element siap
+    if (video.readyState < 2) { // 0=HAVE_NOTHING, 1=HAVE_METADATA, 2=HAVE_CURRENT_DATA, 3=HAVE_FUTURE_DATA, 4=HAVE_ENOUGH_DATA
+        logger.log(`Video not ready (state: ${video.readyState}), retrying...`, 'warn');
+        setTimeout(attemptPlay, 500);
+        return;
+    }
+    
+    // Pastikan ada video track
+    const videoTracks = remoteStream ? remoteStream.getVideoTracks() : [];
+    if (videoTracks.length === 0) {
+        logger.log('No video tracks available', 'warn');
+        showOverlay('Waiting for Video', 'No video stream detected', false);
+        return;
+    }
+    
+    logger.log(`Attempting to play video. Tracks: ${videoTracks.length}, State: ${video.readyState}`, 'info');
+    
+    // Strategy: Play dengan muted dulu
+    video.muted = true;
+    video.playsInline = true;
+    
+    const playPromise = video.play();
+    
+    if (playPromise !== undefined) {
+        playPromise
             .then(() => {
-              logger.log("Video playback started successfully!", "info");
-              hideOverlay();
+                logger.log('🎬 Video playback started successfully!', 'info');
+                hideOverlay();
+                
+                // Setelah 1 detik, coba unmute
+                setTimeout(() => {
+                    if (video.muted) {
+                        video.muted = false;
+                        logger.log('Audio unmuted', 'info');
+                    }
+                }, 1000);
             })
-            .catch((error) => {
-              logger.log(`Play failed: ${error.name}`, "error");
-              // Try muted playback
-              video.muted = true;
-              video.play().catch((e) => {
-                logger.log("Muted playback also failed", "error");
-              });
+            .catch(error => {
+                logger.log(`Autoplay blocked: ${error.name} - ${error.message}`, 'warn');
+                
+                // Show manual button
+                showOverlay('Playback Blocked', 
+                    'Browser requires user interaction. Click the button below.', 
+                    true);
             });
-        }
-      }
-
+    }
+}
       // Perbaiki forcePlay()
-      window.forcePlay = function () {
-        logger.log("Manual play requested", "info");
-        isUserInteracted = true;
-
-        // Pastikan video track ada
-        if (remoteStream && remoteStream.getVideoTracks().length > 0) {
-          logger.log(
-            `Video track available: ${
-              remoteStream.getVideoTracks()[0].readyState
-            }`,
-            "info"
-          );
+     window.forcePlay = function() {
+    logger.log('🚀 Manual play requested', 'info');
+    isUserInteracted = true;
+    
+    // Cek status video track
+    const videoTracks = remoteStream ? remoteStream.getVideoTracks() : [];
+    const audioTracks = remoteStream ? remoteStream.getAudioTracks() : [];
+    
+    logger.log(`Tracks - Video: ${videoTracks.length}, Audio: ${audioTracks.length}`, 'info');
+    
+    if (videoTracks.length > 0) {
+        const track = videoTracks[0];
+        logger.log(`Video Track: ${track.id} - ${track.kind} - ${track.readyState} - ${track.enabled}`, 'info');
+    }
+    
+    // Coba play dengan berbagai strategi
+    const playStrategies = [
+        { muted: true, description: 'Muted autoplay' },
+        { muted: false, description: 'Unmuted autoplay' }
+    ];
+    
+    let attempt = 0;
+    
+    function tryPlay(strategyIndex) {
+        if (strategyIndex >= playStrategies.length) {
+            logger.log('All play strategies failed', 'error');
+            showOverlay('Playback Failed', 
+                'Cannot play video. Try refreshing the page or check browser permissions.', 
+                true);
+            return;
         }
-
-        video.muted = true; // Start dengan muted
-        video
-          .play()
-          .then(() => {
-            logger.log("Manual play successful", "info");
-            video.muted = false; // Coba unmute setelah play
-          })
-          .catch((error) => {
-            logger.log(`Manual play failed: ${error.message}`, "error");
-          });
-      };
+        
+        const strategy = playStrategies[strategyIndex];
+        logger.log(`Trying strategy ${strategyIndex + 1}: ${strategy.description}`, 'info');
+        
+        video.muted = strategy.muted;
+        
+        video.play()
+            .then(() => {
+                logger.log(`✅ ${strategy.description} successful!`, 'info');
+                hideOverlay();
+                
+                // Jika muted berhasil, coba unmute setelah 2 detik
+                if (strategy.muted) {
+                    setTimeout(() => {
+                        video.muted = false;
+                        logger.log('Audio unmuted after successful play', 'info');
+                    }, 2000);
+                }
+            })
+            .catch(error => {
+                logger.log(`❌ ${strategy.description} failed: ${error.name}`, 'warn');
+                tryPlay(strategyIndex + 1);
+            });
+    }
+    
+    tryPlay(0);
+};
 
       function startStatsMonitor() {
         stopStatsMonitor();
@@ -1626,6 +1681,79 @@
         logger.log("Manual stream restart requested", "info");
         disconnectAndReconnect();
       };
+
+      // Tambahkan di akhir script, sebelum </script>
+window.debugVideoTracks = function() {
+    logger.log('=== VIDEO TRACK DEBUG ===', 'debug');
+    
+    if (!video.srcObject) {
+        logger.log('Video srcObject is NULL', 'error');
+        return;
+    }
+    
+    const stream = video.srcObject;
+    const tracks = stream.getTracks();
+    
+    logger.log(`Total tracks: ${tracks.length}`, 'debug');
+    
+    tracks.forEach((track, index) => {
+        logger.log(`Track ${index}:`, 'debug');
+        logger.log(`  Kind: ${track.kind}`, 'debug');
+        logger.log(`  ID: ${track.id}`, 'debug');
+        logger.log(`  Enabled: ${track.enabled}`, 'debug');
+        logger.log(`  ReadyState: ${track.readyState}`, 'debug');
+        logger.log(`  Muted: ${track.muted}`, 'debug');
+        
+        if (track.kind === 'video') {
+            const settings = track.getSettings ? track.getSettings() : {};
+            logger.log(`  Settings: ${JSON.stringify(settings)}`, 'debug');
+        }
+    });
+    
+    logger.log(`Video readyState: ${video.readyState}`, 'debug');
+    logger.log(`Video paused: ${video.paused}`, 'debug');
+    logger.log(`Video muted: ${video.muted}`, 'debug');
+    logger.log(`Video currentTime: ${video.currentTime}`, 'debug');
+    logger.log(`Video duration: ${video.duration}`, 'debug');
+    logger.log(`Video videoWidth: ${video.videoWidth}`, 'debug');
+    logger.log(`Video videoHeight: ${video.videoHeight}`, 'debug');
+    logger.log('=== END DEBUG ===', 'debug');
+};
+
+// Panggil debug ini secara otomatis saat track diterima
+// Di dalam pc.ontrack handler, tambahkan:
+pc.ontrack = (event) => {
+    const track = event.track;
+    const kind = track.kind;
+    
+    logger.log(`Received ${kind} track (ID: ${track.id})`, 'info');
+    
+    // Check if track already exists
+    const existingTrack = remoteStream.getTracks().find(t => t.id === track.id);
+    
+    if (!existingTrack) {
+        remoteStream.addTrack(track);
+        logger.log(`Added ${kind} track to stream. Total tracks: ${remoteStream.getTracks().length}`, 'info');
+        
+        // Debug tracks setelah ditambahkan
+        setTimeout(() => {
+            window.debugVideoTracks();
+        }, 1000);
+        
+        if (kind === 'video') {
+            updateStatus('cameraStatus', 'cameraDot', 'cameraText', 'connected');
+            updateStat('cameraText', 'Active');
+            
+            // Setup video event listeners
+            setupVideoEvents();
+            
+            // Try to play after delay
+            setTimeout(() => {
+                attemptPlay();
+            }, 500);
+        }
+    }
+};
     </script>
   </body>
 </html>
